@@ -1,0 +1,40 @@
+## .NET / Visual Studio
+bin/
+obj/
+*.user
+*.suo
+.vs/
+.vscode/
+*.swp
+
+## Build artifacts
+[Dd]ebug/
+[Rr]elease/
+[Bb]uild/
+*.nupkg
+*.snupkg
+.nuget/
+
+## Test results
+[Tt]est[Rr]esult*/
+TestResults/
+coverage*/
+*.coverage
+*.coveragexml
+
+## Secrets
+appsettings.Development.json
+appsettings.*.local.json
+secrets.json
+.env
+.env.local
+
+## OS
+.DS_Store
+Thumbs.db
+
+## Models (large binaries — see AGENTS.md before committing)
+models/*.onnx
+models/*.pt
+models/*.bin
+models/*.weights

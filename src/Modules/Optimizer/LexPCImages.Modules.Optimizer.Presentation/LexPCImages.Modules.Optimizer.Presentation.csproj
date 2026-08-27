@@ -1,0 +1,19 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <AssemblyName>LexPCImages.Modules.Optimizer.Presentation</AssemblyName>
+    <RootNamespace>LexPCImages.Modules.Optimizer.Presentation</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\LexPCImages.Modules.Optimizer.Application\LexPCImages.Modules.Optimizer.Application.csproj" />
+    <ProjectReference Include="..\..\..\Shared\LexPCImages.Shared\LexPCImages.Shared.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
+  </ItemGroup>
+</Project>

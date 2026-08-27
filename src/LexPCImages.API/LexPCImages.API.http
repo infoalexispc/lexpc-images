@@ -1,0 +1,6 @@
+@LexPCImages.API_HostAddress = http://localhost:5034
+
+GET {{LexPCImages.API_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <AssemblyName>LexPCImages.API</AssemblyName>
+    <RootNamespace>LexPCImages.API</RootNamespace>
+    <UserSecretsId>lexpc-images-api</UserSecretsId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
+    <PackageReference Include="Scalar.AspNetCore" />
+    <PackageReference Include="Serilog.AspNetCore" />
+    <PackageReference Include="Serilog.Sinks.Console" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Shared\LexPCImages.Shared\LexPCImages.Shared.csproj" />
+    <ProjectReference Include="..\Infrastructure\LexPCImages.Infrastructure\LexPCImages.Infrastructure.csproj" />
+    <ProjectReference Include="..\Modules\Optimizer\LexPCImages.Modules.Optimizer.Domain\LexPCImages.Modules.Optimizer.Domain.csproj" />
+    <ProjectReference Include="..\Modules\Optimizer\LexPCImages.Modules.Optimizer.Application\LexPCImages.Modules.Optimizer.Application.csproj" />
+    <ProjectReference Include="..\Modules\Optimizer\LexPCImages.Modules.Optimizer.Infrastructure\LexPCImages.Modules.Optimizer.Infrastructure.csproj" />
+    <ProjectReference Include="..\Modules\Optimizer\LexPCImages.Modules.Optimizer.Presentation\LexPCImages.Modules.Optimizer.Presentation.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\..\models\**\*" Link="models\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

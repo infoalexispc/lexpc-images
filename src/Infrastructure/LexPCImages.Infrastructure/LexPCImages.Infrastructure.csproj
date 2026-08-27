@@ -1,0 +1,10 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <AssemblyName>LexPCImages.Infrastructure</AssemblyName>
+    <RootNamespace>LexPCImages.Infrastructure</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\Shared\LexPCImages.Shared\LexPCImages.Shared.csproj" />
+  </ItemGroup>
+</Project>

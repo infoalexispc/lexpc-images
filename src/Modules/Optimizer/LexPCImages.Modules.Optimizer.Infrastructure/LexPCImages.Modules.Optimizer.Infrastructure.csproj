@@ -1,0 +1,17 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <AssemblyName>LexPCImages.Modules.Optimizer.Infrastructure</AssemblyName>
+    <RootNamespace>LexPCImages.Modules.Optimizer.Infrastructure</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\LexPCImages.Modules.Optimizer.Application\LexPCImages.Modules.Optimizer.Application.csproj" />
+    <ProjectReference Include="..\LexPCImages.Modules.Optimizer.Domain\LexPCImages.Modules.Optimizer.Domain.csproj" />
+    <ProjectReference Include="..\..\..\Shared\LexPCImages.Shared\LexPCImages.Shared.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="SixLabors.ImageSharp" />
+    <PackageReference Include="Microsoft.ML.OnnxRuntime" />
+  </ItemGroup>
+</Project>

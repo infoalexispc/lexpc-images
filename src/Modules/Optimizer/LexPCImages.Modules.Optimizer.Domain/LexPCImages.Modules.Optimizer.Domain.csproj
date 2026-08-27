@@ -1,0 +1,10 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <AssemblyName>LexPCImages.Modules.Optimizer.Domain</AssemblyName>
+    <RootNamespace>LexPCImages.Modules.Optimizer.Domain</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\Shared\LexPCImages.Shared\LexPCImages.Shared.csproj" />
+  </ItemGroup>
+</Project>
