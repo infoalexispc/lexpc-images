@@ -72,3 +72,5 @@ tests/
 ```
 
 Más detalle: [`AGENTS.md`](./AGENTS.md).
+
+git-canary-line-1787831616
