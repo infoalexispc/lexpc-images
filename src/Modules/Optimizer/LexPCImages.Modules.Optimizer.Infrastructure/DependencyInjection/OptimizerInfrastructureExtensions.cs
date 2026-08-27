@@ -28,6 +28,7 @@ public static class OptimizerInfrastructureExtensions
         services.AddSingleton<IDeskMaskRefiner, ImageSharpDeskMaskRefiner>();
         services.AddSingleton<ILegProtector, ImageSharpLegProtector>();
         services.AddSingleton<ITightCropper, ImageSharpTightCropper>();
+        services.AddSingleton<IImagePadder, ImageSharpPadder>();
         services.AddSingleton<IBackgroundRemovalService>(_ => new OnnxBackgroundRemovalService(modelPath));
 
         services.AddScoped<IJobProgressNotifier, JobProgressNotifier>();

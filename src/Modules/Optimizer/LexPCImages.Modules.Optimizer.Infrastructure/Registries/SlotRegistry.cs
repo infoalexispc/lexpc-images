@@ -12,6 +12,7 @@ public sealed class SlotRegistry : ISlotRegistry
         _slots = new[]
         {
             SlotDefinition.PcHome,
+            SlotDefinition.PcMainSection,
         }.ToDictionary(s => s.Id);
     }
 

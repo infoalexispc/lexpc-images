@@ -15,6 +15,7 @@ public sealed class ProcessImageHandler
     private readonly IDeskMaskRefiner _deskRefiner;
     private readonly ILegProtector _legProtector;
     private readonly ITightCropper _tightCropper;
+    private readonly IImagePadder _padder;
     private readonly IImageResizer _resizer;
     private readonly IImageEncoder _encoder;
     private readonly IJobProgressNotifier _notifier;
@@ -27,6 +28,7 @@ public sealed class ProcessImageHandler
         IDeskMaskRefiner deskRefiner,
         ILegProtector legProtector,
         ITightCropper tightCropper,
+        IImagePadder padder,
         IImageResizer resizer,
         IImageEncoder encoder,
         IJobProgressNotifier notifier,
@@ -38,6 +40,7 @@ public sealed class ProcessImageHandler
         _deskRefiner = deskRefiner;
         _legProtector = legProtector;
         _tightCropper = tightCropper;
+        _padder = padder;
         _resizer = resizer;
         _encoder = encoder;
         _notifier = notifier;
@@ -49,14 +52,46 @@ public sealed class ProcessImageHandler
         var slot = job.Slot;
         var refinement = job.EffectiveRefinement;
         _logger.LogInformation(
-            "Processing job {JobId} for slot {SlotId} (shadow={Shadow} desk={Desk} legs={Legs} margin={Margin})",
-            job.Id, slot.Id, refinement.SuppressShadow, refinement.RemoveDesk, refinement.ProtectLegs, refinement.CropMarginPct);
+            "Processing job {JobId} for slot {SlotId} (mode={Mode})",
+            job.Id, slot.Id, slot.Mode);
 
         _notifier.OnStageStarted(job.Id, ProcessingStage.Decoding, 10);
         var decoded = await _decoder.DecodeAsync(job.InputImage, cancellationToken);
         ValidateDimensions(decoded.Width, decoded.Height);
         _notifier.OnStageCompleted(job.Id, ProcessingStage.Decoding, 20);
 
+        var finalImage = slot.Mode switch
+        {
+            SlotMode.ResizeAndPad => await ResizeAndPadPipelineAsync(
+                job, decoded, cancellationToken),
+            _ => await BackgroundRemovalPipelineAsync(
+                job, decoded, refinement, cancellationToken),
+        };
+
+        _notifier.OnStageStarted(job.Id, ProcessingStage.Encoding, 96);
+        var webp = await _encoder.EncodeWebPAsync(finalImage, cancellationToken);
+        _notifier.OnStageCompleted(job.Id, ProcessingStage.Encoding, 100);
+
+        return Result<byte[]>.Success(webp);
+    }
+
+    private async Task<DecodedImage> ResizeAndPadPipelineAsync(
+        ProcessJob job,
+        DecodedImage decoded,
+        CancellationToken cancellationToken)
+    {
+        _notifier.OnStageStarted(job.Id, ProcessingStage.Resizing, 50);
+        var padded = _padder.Pad(decoded, job.Slot.Width, job.Slot.Height);
+        _notifier.OnStageCompleted(job.Id, ProcessingStage.Resizing, 90);
+        return padded.Image;
+    }
+
+    private async Task<DecodedImage> BackgroundRemovalPipelineAsync(
+        ProcessJob job,
+        DecodedImage decoded,
+        RefinementOptions refinement,
+        CancellationToken cancellationToken)
+    {
         _notifier.OnStageStarted(job.Id, ProcessingStage.Inferring, 25);
         var currentMask = await _backgroundRemover.RemoveBackgroundAsync(decoded, cancellationToken);
         _notifier.OnStageCompleted(job.Id, ProcessingStage.Inferring, 55);
@@ -91,17 +126,13 @@ public sealed class ProcessImageHandler
         _notifier.OnStageStarted(job.Id, ProcessingStage.Resizing, 82);
         var resized = await _resizer.ResizeAsync(
             maskedImage,
-            slot.Width,
-            slot.Height,
+            job.Slot.Width,
+            job.Slot.Height,
             ResizeMode.Stretch,
             cancellationToken);
         _notifier.OnStageCompleted(job.Id, ProcessingStage.Resizing, 94);
 
-        _notifier.OnStageStarted(job.Id, ProcessingStage.Encoding, 96);
-        var webp = await _encoder.EncodeWebPAsync(resized, cancellationToken);
-        _notifier.OnStageCompleted(job.Id, ProcessingStage.Encoding, 100);
-
-        return Result<byte[]>.Success(webp);
+        return resized;
     }
 
     private void ValidateDimensions(int width, int height)

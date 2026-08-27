@@ -312,6 +312,53 @@ public sealed class ProcessImageHandlerTests
         tightCropper.Received(1).Crop(Arg.Any<DecodedImage>(), Arg.Any<MaskResult>(), RefinementOptions.Defaults.CropMarginPct);
     }
 
+[Fact]
+    public async Task HandleAsync_uses_resize_and_pad_pipeline_when_slot_mode_is_ResizeAndPad()
+    {
+        var resizeAndPadSlot = new SlotDefinition(
+            SlotDefinition.PcMainSection.Id,
+            SlotDefinition.PcMainSection.Width,
+            SlotDefinition.PcMainSection.Height,
+            Mode: SlotMode.ResizeAndPad);
+
+        var decoder = Substitute.For<IImageDecoder>();
+        var remover = Substitute.For<IBackgroundRemovalService>();
+        var shadowSuppressor = Substitute.For<IShadowSuppressor>();
+        var deskRefiner = Substitute.For<IDeskMaskRefiner>();
+        var legProtector = Substitute.For<ILegProtector>();
+        var tightCropper = Substitute.For<ITightCropper>();
+        var padder = Substitute.For<IImagePadder>();
+        var resizer = Substitute.For<IImageResizer>();
+        var encoder = Substitute.For<IImageEncoder>();
+        var notifier = Substitute.For<IJobProgressNotifier>();
+
+        var decoded = new DecodedImage(800, 450, new byte[800 * 450 * 4]);
+        var padded = new DecodedImage(1000, 720, new byte[1000 * 720 * 4]);
+        var resized = new DecodedImage(1000, 720, new byte[1000 * 720 * 4]);
+
+        decoder.DecodeAsync(Arg.Any<byte[]>(), Arg.Any<CancellationToken>()).Returns(decoded);
+        padder.Pad(decoded, 1000, 720).Returns(new PaddedImage(padded, 0, 0));
+        resizer.ResizeAsync(Arg.Any<DecodedImage>(), 1000, 720, Arg.Any<ResizeMode>(), Arg.Any<CancellationToken>()).Returns(resized);
+        encoder.EncodeWebPAsync(resized, Arg.Any<CancellationToken>()).Returns(EncodedWebp);
+
+        var handler = new ProcessImageHandler(
+            decoder, remover, shadowSuppressor, deskRefiner, legProtector, tightCropper, padder,
+            resizer, encoder, notifier, NullLogger<ProcessImageHandler>.Instance);
+        var job = ProcessJob.Create(resizeAndPadSlot, InputImage, "image/jpeg", DateTimeOffset.UtcNow);
+
+        var result = await handler.HandleAsync(job, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        padder.Received(1).Pad(decoded, 1000, 720);
+        shadowSuppressor.DidNotReceive().Suppress(Arg.Any<DecodedImage>(), Arg.Any<MaskResult>());
+        deskRefiner.DidNotReceive().RemoveDesk(Arg.Any<MaskResult>());
+        legProtector.DidNotReceive().Protect(Arg.Any<DecodedImage>(), Arg.Any<MaskResult>());
+        tightCropper.DidNotReceive().Crop(Arg.Any<DecodedImage>(), Arg.Any<MaskResult>(), Arg.Any<double>());
+        await remover.DidNotReceive().RemoveBackgroundAsync(Arg.Any<DecodedImage>(), Arg.Any<CancellationToken>());
+        notifier.DidNotReceive().OnStageStarted(job.Id, ProcessingStage.Inferring, Arg.Any<int>());
+        notifier.DidNotReceive().OnStageStarted(job.Id, ProcessingStage.Cropping, Arg.Any<int>());
+    }
+
     private static ProcessImageHandler BuildHandler(
         IImageDecoder decoder,
         IBackgroundRemovalService remover,
@@ -322,5 +369,18 @@ public sealed class ProcessImageHandlerTests
         IImageResizer resizer,
         IImageEncoder encoder,
         IJobProgressNotifier notifier) =>
-        new(decoder, remover, shadowSuppressor, deskRefiner, legProtector, tightCropper, resizer, encoder, notifier, NullLogger<ProcessImageHandler>.Instance);
+        new(decoder, remover, shadowSuppressor, deskRefiner, legProtector, tightCropper, Substitute.For<IImagePadder>(), resizer, encoder, notifier, NullLogger<ProcessImageHandler>.Instance);
+
+    private static ProcessImageHandler BuildHandler(
+        IImageDecoder decoder,
+        IBackgroundRemovalService remover,
+        IShadowSuppressor shadowSuppressor,
+        IDeskMaskRefiner deskRefiner,
+        ILegProtector legProtector,
+        ITightCropper tightCropper,
+        IImagePadder padder,
+        IImageResizer resizer,
+        IImageEncoder encoder,
+        IJobProgressNotifier notifier) =>
+        new(decoder, remover, shadowSuppressor, deskRefiner, legProtector, tightCropper, padder, resizer, encoder, notifier, NullLogger<ProcessImageHandler>.Instance);
 }
