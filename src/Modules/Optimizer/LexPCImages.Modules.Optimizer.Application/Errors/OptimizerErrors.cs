@@ -44,10 +44,6 @@ public static class OptimizerErrors
         "optimizer.job_not_found",
         $"No job with id '{jobId}' was found.");
 
-    public static readonly Error InternalProcessingEnqueueFailed = Error.Internal(
-        "optimizer.enqueue_failed",
-        "The job was created but could not be enqueued for processing.");
-
     public static readonly Error ProcessingQueueFull = Error.Unavailable(
         "optimizer.processing_queue_full",
         "The image processing queue is full. Try again later.");
