@@ -1,76 +1,73 @@
-using System.Threading.Channels;
 using LexPCImages.Modules.Optimizer.Application.Abstractions;
-using LexPCImages.Modules.Optimizer.Domain.Abstractions;
+using LexPCImages.Modules.Optimizer.Application.Ports;
 using LexPCImages.Modules.Optimizer.Infrastructure.Ai;
 using LexPCImages.Modules.Optimizer.Infrastructure.BackgroundProcessing;
+using LexPCImages.Modules.Optimizer.Infrastructure.Configuration;
 using LexPCImages.Modules.Optimizer.Infrastructure.Imaging;
+using LexPCImages.Modules.Optimizer.Infrastructure.MaskRefinement;
 using LexPCImages.Modules.Optimizer.Infrastructure.Persistence;
+using LexPCImages.Modules.Optimizer.Infrastructure.Queue;
 using LexPCImages.Modules.Optimizer.Infrastructure.Registries;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Options;
 
 namespace LexPCImages.Modules.Optimizer.Infrastructure.DependencyInjection;
 
 public static class OptimizerInfrastructureExtensions
 {
-    public static IServiceCollection AddOptimizerInfrastructure(this IServiceCollection services, IConfiguration configuration)
+    public static IServiceCollection AddOptimizerInfrastructure(
+        this IServiceCollection services,
+        IConfiguration configuration)
     {
-        var modelPath = ResolveModelPath(configuration["Optimizer:ModelPath"]);
+        ArgumentNullException.ThrowIfNull(configuration);
 
-        services.AddSingleton<IJobRepository, InMemoryJobRepository>();
-        services.AddSingleton<ISlotRegistry, SlotRegistry>();
+        services
+            .AddOptions<OptimizerOptions>()
+            .Bind(configuration.GetSection(OptimizerOptions.SectionName))
+            .ValidateDataAnnotations()
+            .ValidateOnStart();
 
-        services.AddSingleton<IImageDecoder, ImageSharpDecoder>();
-        services.AddSingleton<IImageResizer, ImageSharpResizer>();
-        services.AddSingleton<IImageEncoder, WebpEncoderService>();
-        services.AddSingleton<IShadowSuppressor, ImageSharpShadowSuppressor>();
-        services.AddSingleton<IDeskMaskRefiner, ImageSharpDeskMaskRefiner>();
-        services.AddSingleton<ILegProtector, ImageSharpLegProtector>();
-        services.AddSingleton<ITightCropper, ImageSharpTightCropper>();
-        services.AddSingleton<IImagePadder, ImageSharpPadder>();
-        services.AddSingleton<IBackgroundRemovalService>(_ => new OnnxBackgroundRemovalService(modelPath));
-
-        services.AddScoped<IJobProgressNotifier, JobProgressNotifier>();
-
-        services.AddSingleton(_ => Channel.CreateUnbounded<Guid>(new UnboundedChannelOptions
-        {
-            SingleReader = true,
-            SingleWriter = false,
-        }));
-        services.AddSingleton<ImageProcessingBackgroundService>();
-        services.AddHostedService(sp => sp.GetRequiredService<ImageProcessingBackgroundService>());
+        services.AddOptimizerPersistence();
+        services.AddOptimizerImaging();
+        services.AddOptimizerProcessing();
 
         return services;
     }
 
-    public static IServiceCollection AddOptimizerQueueWriter(this IServiceCollection services)
+    private static void AddOptimizerPersistence(this IServiceCollection services)
     {
-        return services.AddSingleton<OptimizerQueueWriter>();
+        services.AddSingleton<IJobRepository, InMemoryJobRepository>();
+        services.AddSingleton<ISlotRegistry, SlotRegistry>();
     }
 
-    private static string ResolveModelPath(string? configured)
+    private static void AddOptimizerImaging(this IServiceCollection services)
     {
-        if (string.IsNullOrWhiteSpace(configured))
-        {
-            return Path.Combine(AppContext.BaseDirectory, "models", "rmbg-1.4-fp16.onnx");
-        }
-        if (Path.IsPathRooted(configured))
-        {
-            return configured;
-        }
-        return Path.Combine(AppContext.BaseDirectory, configured);
-    }
-}
+        services.AddSingleton<IImageDecoder, ImageSharpDecoder>();
+        services.AddSingleton<IImageEncoder, WebpImageEncoder>();
+        services.AddSingleton<IImageResizer, ImageSharpResizer>();
+        services.AddSingleton<IImagePadder, ImageSharpPadder>();
 
-public sealed class OptimizerQueueWriter
-{
-    private readonly Channel<Guid> _channel;
+        services.AddSingleton<IShadowSuppressor, ShadowSuppressor>();
+        services.AddSingleton<IDeskMaskRefiner, DeskMaskRefiner>();
+        services.AddSingleton<ILegProtector, LegProtector>();
+        services.AddSingleton<ITightCropper, TightCropper>();
 
-    public OptimizerQueueWriter(Channel<Guid> channel)
-    {
-        _channel = channel;
+        // La sesión de ONNX Runtime es cara: una sola instancia para todo el proceso.
+        services.AddSingleton<IBackgroundRemovalService>(provider =>
+            new OnnxBackgroundRemovalService(
+                provider.GetRequiredService<IOptions<OptimizerOptions>>().Value.ResolveModelPath()));
     }
 
-    public bool Enqueue(Guid jobId) => _channel.Writer.TryWrite(jobId);
+    private static void AddOptimizerProcessing(this IServiceCollection services)
+    {
+        services.AddScoped<IJobProgressNotifier, JobProgressNotifier>();
+
+        services.AddSingleton(provider => new ChannelJobQueue(
+            provider.GetRequiredService<IOptions<OptimizerOptions>>().Value.QueueCapacity));
+        services.AddSingleton<IJobQueueWriter>(provider => provider.GetRequiredService<ChannelJobQueue>());
+        services.AddSingleton<IJobQueueReader>(provider => provider.GetRequiredService<ChannelJobQueue>());
+
+        services.AddHostedService<ImageProcessingBackgroundService>();
+    }
 }

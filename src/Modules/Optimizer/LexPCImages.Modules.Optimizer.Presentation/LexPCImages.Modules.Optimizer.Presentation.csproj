@@ -11,6 +11,7 @@
   <ItemGroup>
     <ProjectReference Include="..\LexPCImages.Modules.Optimizer.Application\LexPCImages.Modules.Optimizer.Application.csproj" />
     <ProjectReference Include="..\..\..\Shared\LexPCImages.Shared\LexPCImages.Shared.csproj" />
+    <ProjectReference Include="..\..\..\Shared\LexPCImages.Shared.Web\LexPCImages.Shared.Web.csproj" />
   </ItemGroup>
 
   <ItemGroup>

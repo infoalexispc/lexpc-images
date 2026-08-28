@@ -1,6 +1,6 @@
 using FluentAssertions;
+using LexPCImages.Modules.Optimizer.Application.Ports;
 using LexPCImages.Modules.Optimizer.Application.UseCases.GetJobStatus;
-using LexPCImages.Modules.Optimizer.Domain.Abstractions;
 using LexPCImages.Modules.Optimizer.Domain.Entities;
 using LexPCImages.Modules.Optimizer.Domain.ValueObjects;
 using LexPCImages.Shared.Common.Errors;
@@ -34,7 +34,7 @@ public sealed class GetJobStatusHandlerTests
     {
         var now = DateTimeOffset.UtcNow;
         var job = ProcessJob.Create(_slot, new byte[] { 0x01 }, "image/png", now);
-        job.MarkProcessing(ProcessingStage.Inferring, 50);
+        job.MarkProcessing(ProcessingStage.Inferring, 50, now);
 
         _jobs.GetAsync(job.Id, Arg.Any<CancellationToken>()).Returns(job);
         var sut = CreateSut();

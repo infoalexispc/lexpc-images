@@ -1,39 +1,50 @@
-using System.Reflection;
+using LexPCImages.API.Configuration;
+using LexPCImages.API.Middleware;
 using LexPCImages.Modules.Optimizer.Application.DependencyInjection;
 using LexPCImages.Modules.Optimizer.Infrastructure.DependencyInjection;
 using LexPCImages.Modules.Optimizer.Presentation;
-using LexPCImages.Modules.Optimizer.Presentation.Controllers;
-using LexPCImages.Shared;
 using Scalar.AspNetCore;
 using Serilog;
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Host.UseSerilog((context, lc) => lc.ReadFrom.Configuration(context.Configuration));
+builder.Host.UseSerilog((context, loggerConfiguration) =>
+    loggerConfiguration.ReadFrom.Configuration(context.Configuration));
 
+// --- Módulos ---
 builder.Services.AddOptimizerApplication();
 builder.Services.AddOptimizerInfrastructure(builder.Configuration);
 
 builder.Services
     .AddControllers()
-    .AddApplicationPart(Assembly.GetAssembly(typeof(OptimizerController))!);
+    .AddOptimizerPresentation();
 
+// --- Preocupaciones transversales del host ---
+builder.Services.AddProblemDetails();
 builder.Services.AddOpenApi();
-builder.Services.AddCors(options =>
-    options.AddDefaultPolicy(policy =>
-        policy.WithOrigins("http://localhost:4300")
-            .AllowAnyHeader()
-            .AllowAnyMethod()
-            .AllowCredentials()));
-
-builder.Services.AddSingleton<IModuleRegistration, OptimizerModule>();
 builder.Services.AddHealthChecks();
+
+var corsSection = builder.Configuration.GetSection(FrontendCorsOptions.SectionName);
+builder.Services
+    .AddOptions<FrontendCorsOptions>()
+    .Bind(corsSection)
+    .ValidateDataAnnotations()
+    .ValidateOnStart();
+
+// El origen ya no está en el código: cada entorno declara el suyo en Cors:AllowedOrigins.
+var allowedOrigins = corsSection.Get<FrontendCorsOptions>()?.AllowedOrigins ?? [];
+builder.Services.AddCors(options => options.AddPolicy(
+    FrontendCorsOptions.PolicyName,
+    policy => policy
+        .WithOrigins(allowedOrigins)
+        .AllowAnyHeader()
+        .AllowAnyMethod()));
 
 var app = builder.Build();
 
 app.UseSerilogRequestLogging();
-app.UseMiddleware<LexPCImages.API.Middleware.GlobalExceptionMiddleware>();
-app.UseCors();
+app.UseMiddleware<GlobalExceptionMiddleware>();
+app.UseCors(FrontendCorsOptions.PolicyName);
 
 if (app.Environment.IsDevelopment())
 {
@@ -43,11 +54,7 @@ if (app.Environment.IsDevelopment())
 
 app.MapControllers();
 app.MapHealthChecks("/health");
-
-foreach (var module in app.Services.GetServices<IModuleRegistration>())
-{
-    module.MapEndpoints(app);
-}
+app.MapOptimizerEndpoints();
 
 app.Run();
 

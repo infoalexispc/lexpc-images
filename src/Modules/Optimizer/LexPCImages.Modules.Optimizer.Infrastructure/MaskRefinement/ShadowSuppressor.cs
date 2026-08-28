@@ -1,8 +1,14 @@
 using LexPCImages.Modules.Optimizer.Application.Abstractions;
+using LexPCImages.Modules.Optimizer.Infrastructure.Imaging.Internal;
 
-namespace LexPCImages.Modules.Optimizer.Infrastructure.Imaging;
+namespace LexPCImages.Modules.Optimizer.Infrastructure.MaskRefinement;
 
-public sealed class ImageSharpShadowSuppressor : IShadowSuppressor
+/// <summary>
+/// Atenúa las zonas de la máscara que parecen sombra: píxeles poco saturados y de luminosidad
+/// media que el segmentador ha incluido con alfa bajo. Las sombras propias del producto
+/// (rodeadas de máscara sólida) se atenúan; las proyectadas sobre la mesa se eliminan.
+/// </summary>
+public sealed class ShadowSuppressor : IShadowSuppressor
 {
     private const float MinMaskAlpha = 0.1f;
     private const float MaxShadowSaturation = 0.25f;
@@ -16,28 +22,23 @@ public sealed class ImageSharpShadowSuppressor : IShadowSuppressor
 
     public MaskResult Suppress(DecodedImage original, MaskResult mask)
     {
-        if (original.Width != mask.Width || original.Height != mask.Height)
-        {
-            throw new InvalidOperationException(
-                $"Mask dimensions ({mask.Width}x{mask.Height}) do not match image ({original.Width}x{original.Height}).");
-        }
+        ArgumentNullException.ThrowIfNull(original);
+        ArgumentNullException.ThrowIfNull(mask);
+        MaskGeometry.EnsureMatchingDimensions(original, mask);
 
         var suspect = BuildSuspectMask(original, mask);
-        var eroded = Erode(suspect, mask.Width, mask.Height, ErodeRadius);
+        var eroded = Morphology.ErodeGrayscale(suspect, mask.Width, mask.Height, ErodeRadius);
 
         var result = new float[mask.Values.Length];
         for (var i = 0; i < mask.Values.Length; i++)
         {
-            if (mask.Values[i] >= ProtectedAlphaThreshold)
+            // Núcleo sólido del producto: intocable.
+            if (mask.Values[i] >= ProtectedAlphaThreshold || eroded[i] < 0.5f)
             {
                 result[i] = mask.Values[i];
                 continue;
             }
-            if (eroded[i] < 0.5f)
-            {
-                result[i] = mask.Values[i];
-                continue;
-            }
+
             var localAlpha = ComputeLocalAlpha(mask.Values, i, mask.Width, mask.Height);
             var multiplier = localAlpha >= LocalAlphaThreshold
                 ? FormShadowAlphaMultiplier
@@ -58,17 +59,17 @@ public sealed class ImageSharpShadowSuppressor : IShadowSuppressor
                 continue;
             }
 
-            var offset = i * 4;
+            var offset = i * RgbaImageInterop.BytesPerPixel;
             var r = original.Rgba[offset] / 255f;
             var g = original.Rgba[offset + 1] / 255f;
             var b = original.Rgba[offset + 2] / 255f;
 
             var max = MathF.Max(r, MathF.Max(g, b));
             var min = MathF.Min(r, MathF.Min(g, b));
-            var v = max;
-            var s = max == 0f ? 0f : (max - min) / max;
+            var value = max;
+            var saturation = max == 0f ? 0f : (max - min) / max;
 
-            if (s < MaxShadowSaturation && v >= MinShadowValue && v <= MaxShadowValue)
+            if (saturation < MaxShadowSaturation && value >= MinShadowValue && value <= MaxShadowValue)
             {
                 suspect[i] = 1f;
             }
@@ -96,45 +97,10 @@ public sealed class ImageSharpShadowSuppressor : IShadowSuppressor
                 {
                     continue;
                 }
-                sum += values[sy * width + sx];
+                sum += values[(sy * width) + sx];
                 count++;
             }
         }
         return count > 0 ? sum / count : 0f;
-    }
-
-    private static float[] Erode(float[] values, int width, int height, int radius)
-    {
-        var result = new float[values.Length];
-        for (var y = 0; y < height; y++)
-        {
-            for (var x = 0; x < width; x++)
-            {
-                var min = float.MaxValue;
-                for (var ky = -radius; ky <= radius; ky++)
-                {
-                    var sy = y + ky;
-                    if ((uint)sy >= (uint)height)
-                    {
-                        continue;
-                    }
-                    for (var kx = -radius; kx <= radius; kx++)
-                    {
-                        var sx = x + kx;
-                        if ((uint)sx >= (uint)width)
-                        {
-                            continue;
-                        }
-                        var v = values[sy * width + sx];
-                        if (v < min)
-                        {
-                            min = v;
-                        }
-                    }
-                }
-                result[y * width + x] = min;
-            }
-        }
-        return result;
     }
 }

@@ -1,110 +1,171 @@
 # AGENTS.md — lexpc-images
 
-API en **.NET 10** con arquitectura **hexagonal + DDD** en monolito modular. Composition root único: `src/LexPCImages.API/Program.cs`. v0.1 expone el módulo `Optimizer` con pipeline real: decode → BiRefNet (RMBG) → mask → fit+pad 320×315 → WebP.
+API en **.NET 10** con arquitectura **hexagonal + DDD** en monolito modular. Composition root único: `src/LexPCImages.API/Program.cs`. v0.1 expone el módulo `Optimizer` con dos pipelines reales seleccionados por el `SlotMode` del slot.
 
 ## Stack
 
 - **.NET 10** (`net10.0`), `<Nullable>enable</Nullable>`, `<ImplicitUsings>enable</ImplicitUsings>`, `<LangVersion>latest</LangVersion>`, `TreatWarningsAsErrors=true`
+- **`.editorconfig` en la raíz** con las reglas de estilo y nombres. `EnforceCodeStyleInBuild=true` + `GenerateDocumentationFile=true` hacen que IDE0005 (usings innecesarios) rompa la compilación.
 - **Versiones NuGet centralizadas** en `Directory.Packages.props` raíz. Los `.csproj` llevan `<PackageReference Include="X" />` **sin** atributo `Version`.
-- **CentralPackageTransitivePinningEnabled** para fijar versiones vulnerables (hoy `Microsoft.OpenApi 2.0.0`).
-- **ImageSharp 3.1.12** (`SixLabors.ImageSharp`) — decode, resize Lanczos3, encode WebP (lossless via `WebpFileFormatType.Lossless`).
-- **OnnxRuntime 1.22** (`Microsoft.ML.OnnxRuntime`) — inferencia del modelo de segmentación.
-- **Scalar.AspNetCore** en `/scalar` (OpenAPI en `/openapi/v1.json`).
-- **Serilog.AspNetCore** + `Serilog.Sinks.Console`.
-- **Tests**: `xUnit` + `FluentAssertions` + `NSubstitute` + `NetArchTest.Rules` + `Microsoft.AspNetCore.Mvc.Testing` + `coverlet.collector`.
+- **CentralPackageTransitivePinningEnabled** para fijar versiones transitivas seguras (hoy `Microsoft.OpenApi 2.7.5`).
+- **ImageSharp 3.1.12** — decode, resize Lanczos3, encode WebP lossless.
+- **OnnxRuntime 1.22** — inferencia del modelo de segmentación.
+- **Scalar.AspNetCore** en `/scalar` (OpenAPI en `/openapi/v1.json`), **Serilog.AspNetCore** + `Serilog.Sinks.Console`.
+- **Tests**: `xUnit` + `FluentAssertions` + `NSubstitute` + `Microsoft.Extensions.TimeProvider.Testing` + `NetArchTest.Rules` + `Microsoft.AspNetCore.Mvc.Testing` + `coverlet.collector`.
 
 ## Módulos y capas
 
 ```
-Domain          →  (nada)
-Application     →  Domain, Shared
+Domain                 →  Shared
+Application            →  Domain, Shared
 Module.Infrastructure  →  Application, Domain, Shared
-Module.Presentation    →  Application, Shared + FrameworkReference AspNetCore.App
-Shared          →  (nada) + FrameworkReference AspNetCore.App
-Infrastructure  →  Shared
-API             →  TODAS
+Shared.Web             →  Shared + FrameworkReference AspNetCore.App
+Module.Presentation    →  Application, Shared, Shared.Web + FrameworkReference AspNetCore.App
+Shared                 →  (nada; sin dependencia web)
+API                    →  TODAS
 ```
+
+Las reglas anteriores están fijadas por tests de `NetArchTest`, incluida "solo las capas web pueden referenciar ASP.NET Core" y "el dominio no lee el reloj ambiental" (esta última inspecciona el IL).
 
 ```
 LexPCImages.slnx
 ├── src/
 │   ├── LexPCImages.API/                  # composition root + Scalar + health + CORS
-│   ├── Shared/LexPCImages.Shared/        # Result<T>, Error, ErrorType, IModuleRegistration
-│   ├── Infrastructure/LexPCImages.Infrastructure/   # (vacío por ahora)
+│   ├── Shared/
+│   │   ├── LexPCImages.Shared/           # Result<T>, Error, ErrorType
+│   │   └── LexPCImages.Shared.Web/       # ErrorHttpMapper: única traducción Error → HTTP
 │   └── Modules/Optimizer/
-│       ├── Domain/                       # ProcessJob, SlotDefinition, OptimizerErrors, IJobRepository, ISlotRegistry
-│       ├── Application/                  # EnqueueJobHandler, GetJobStatusHandler, ProcessImageHandler, abstracciones
-│       ├── Infrastructure/              # OnnxBackgroundRemovalService, ImageSharp*, WebpEncoderService, BackgroundService
-│       └── Presentation/                # OptimizerController, OptimizerModule, DTOs
+│       ├── Domain/                       # ProcessJob, SlotDefinition, RefinementOptions, OptimizerErrors
+│       ├── Application/                  # casos de uso, puertos, pipelines, progreso, validación
+│       ├── Infrastructure/               # ONNX, ImageSharp, refinadores de máscara, cola, repositorio
+│       └── Presentation/                 # OptimizerController, OptimizerModule, DTOs
 └── tests/
-    ├── LexPCImages.UnitTests/         # xUnit (Domain + Application + ImageSharp/Onnx/Webp services)
-    ├── LexPCImages.ArchitectureTests/ # NetArchTest (capas + interfaces + no console)
-    └── LexPCImages.IntegrationTests/  # WebApplicationFactory (pipeline completo con FakeBackgroundRemovalService)
+    ├── LexPCImages.UnitTests/            # 151 tests
+    ├── LexPCImages.ArchitectureTests/    # 17 tests
+    └── LexPCImages.IntegrationTests/     # 14 tests
 ```
 
-## Pipeline (F3)
+### Estructura interna de Application
+
+| Carpeta | Contenido |
+|---|---|
+| `Abstractions/` | Puertos hacia servicios técnicos (`IImageDecoder`, `IImageEncoder`, `IBackgroundRemovalService`, refinadores, `IJobProgressNotifier`) y sus DTOs (`DecodedImage`, `MaskResult`, `EncodedImage`…) |
+| `Ports/` | Puertos hacia infraestructura de estado: `IJobRepository`, `IJobQueueWriter`/`IJobQueueReader`, `ISlotRegistry` |
+| `Pipelines/` | Una estrategia por `SlotMode`: `BackgroundRemovalPipeline`, `ResizeAndPadPipeline` |
+| `Progress/` | `OptimizerProgress` (tabla de tramos), `StageProgress`, extensiones del notificador |
+| `Imaging/` | `MaskCompositor`: composición de la máscara sobre el RGBA |
+| `Validation/` | `ImageContentTypes`: media types admitidos + firma real de los bytes |
+| `UseCases/` | `EnqueueJob`, `GetJobStatus`, `GetJobDownload`, `ProcessImage` |
+
+### Estructura interna de Infrastructure
+
+| Carpeta | Contenido |
+|---|---|
+| `Ai/` | `OnnxBackgroundRemovalService` |
+| `Imaging/` | Servicios respaldados por ImageSharp + `Internal/RgbaImageInterop` y `Internal/Morphology` |
+| `MaskRefinement/` | Algoritmos puros sobre arrays: `ShadowSuppressor`, `DeskMaskRefiner`, `LegProtector`, `TightCropper` |
+| `Persistence/` | `InMemoryJobRepository` con retención y tope de trabajos |
+| `Queue/`, `Registries/`, `BackgroundProcessing/`, `Configuration/` | Cola `Channel<T>`, catálogo de slots, worker, `OptimizerOptions` |
+
+## Pipeline
+
+`ProcessImageHandler` decodifica, elige la estrategia según `slot.Mode` y codifica. **Añadir un modo nuevo es añadir una implementación de `IImageProcessingPipeline` y una línea en `AddOptimizerApplication`; no se toca el orquestador.**
 
 ```
-POST /api/optimizer/jobs  →  enqueue en Channel<Guid>
+POST /api/optimizer/jobs  →  validación (tamaño + media type + firma real) → cola acotada
    ↓
 [ImageProcessingBackgroundService]
    ↓
 ProcessImageHandler.HandleAsync(job):
-   1. IImageDecoder.DecodeAsync       (ImageSharp: cualquier formato → RGBA)
-   2. IBackgroundRemovalService.RemoveBackgroundAsync  (RMBG-1.4 ONNX → mask)
-   3. Apply mask: rgba.a *= mask
-   4. IImageResizer.ResizeAsync        (ImageSharp ResizeMode.Pad, Lanczos3, PadColor=Transparent)
-   5. IImageEncoder.EncodeWebPAsync     (ImageSharp WebP lossless)
+   1. IImageDecoder.DecodeAsync        → RGBA
+   2. validación de dimensiones        → 200..8000 px
+   3. IImageProcessingPipeline.ExecuteAsync (según SlotMode)
+   4. IImageEncoder.EncodeAsync        → EncodedImage(bytes, "image/webp")
    ↓
-ProcessJob.MarkDone(outputBytes, "image/webp")
+ProcessJob.MarkDone(bytes, contentType, now)
    ↓
-GET /api/optimizer/jobs/{id}/download  →  File(outputBytes, "image/webp", "pc-home-{id}.webp")
+GET /api/optimizer/jobs/{id}/download  →  "{slotId}-{jobId:N}.webp"
 ```
 
-Progreso notificado vía `IJobProgressNotifier` → `IJobRepository`:
-- `Decoding` 10% → 20%
-- `Inferring` 25% → 60%
-- `Masking` 65% → 75%
-- `Resizing` 80% → 92%
-- `Encoding` 95% → 100%
+`BackgroundRemovalPipeline` (`SlotMode.BackgroundRemoval`): RMBG → protección de patas → mesa → sombras → recorte ajustado → composición de máscara → estirado al tamaño del slot.
+`ResizeAndPadPipeline` (`SlotMode.ResizeAndPad`): escalado proporcional + relleno con el color de fondo dominante.
+
+### Progreso
+
+Los porcentajes viven **solo** en `Application/Progress/OptimizerProgress.cs`. Ningún literal de progreso fuera de ese fichero.
+
+| Etapa | Tramo | Pipeline |
+|---|---|---|
+| `Decoding` | 5 → 15 | ambos |
+| `Inferring` | 15 → 50 | BackgroundRemoval |
+| `LegProtecting` | 50 → 58 | BackgroundRemoval (opcional) |
+| `DeskRemoving` | 58 → 66 | BackgroundRemoval (opcional) |
+| `ShadowSuppressing` | 66 → 74 | BackgroundRemoval (opcional) |
+| `Cropping` | 74 → 82 | BackgroundRemoval |
+| `Resizing` | 82 → 90 | BackgroundRemoval |
+| `Resizing` | 15 → 90 | ResizeAndPad |
+| `Encoding` | 92 → 100 | ambos |
 
 ## Endpoints
 
 | Método | Ruta | Comportamiento |
 |---|---|---|
-| `POST` | `/api/optimizer/jobs` | `multipart/form-data` con `slotId` + `file`. Devuelve `202` con `{ jobId, status }` |
-| `GET` | `/api/optimizer/jobs/{id}` | Estado: `{ jobId, status, stage, progress, createdAt, completedAt, errorMessage }` |
-| `GET` | `/api/optimizer/jobs/{id}/download` | Sirve el WebP final (200 OK) o `409 Conflict` si el job no está en `Done` |
+| `POST` | `/api/optimizer/jobs` | `multipart/form-data` con `slotId` + `file` (+ `shadowSuppression`, `deskRemoval`, `legProtection`, `cropMarginPct`). `202` con `{ jobId, status }` |
+| `GET` | `/api/optimizer/jobs/{id}` | `{ jobId, status, stage, progress, createdAt, completedAt, errorMessage }` |
+| `GET` | `/api/optimizer/jobs/{id}/download` | WebP final (200) o `409 Conflict` si el job no está en `Done` |
 | `GET` | `/api/optimizer/health` | Health check del módulo |
 | `GET` | `/health` | Health check de ASP.NET |
 | `GET` | `/openapi/v1.json` | Spec OpenAPI 3.1 |
-| `GET` | `/scalar` | UI de Scalar (302 redirect) |
+| `GET` | `/scalar` | UI de Scalar |
+
+### Errores
+
+Todos los errores salen como `application/problem+json` con un campo `code` estable, traducidos por `ErrorHttpMapper` (`src/Shared/LexPCImages.Shared.Web`). El middleware global **solo** responde `500` genérico: los errores esperables viajan como `Result` desde los casos de uso.
+
+Códigos: `optimizer.slot_not_found`, `optimizer.slot_id_required`, `optimizer.file_required`, `optimizer.image_empty`, `optimizer.image_too_large`, `optimizer.image_format_not_supported`, `optimizer.image_content_mismatch`, `optimizer.image_too_small`, `optimizer.image_dimensions_too_large`, `optimizer.crop_margin_out_of_range`, `optimizer.processing_queue_full`, `optimizer.job_not_found`, `optimizer.job_not_ready`, `optimizer.pipeline_not_available`, `internal.error`.
+
+### Validación de la subida
+
+El `Content-Type` lo declara el cliente, así que además se comprueba la **firma real** de los bytes (PNG, JPEG, RIFF+WEBP). Un fichero que no sea una imagen admitida se rechaza con `400 optimizer.image_content_mismatch` **antes** de crear el trabajo.
+
+## Configuración
+
+Enlazada con el patrón Options y validada al arrancar (`ValidateDataAnnotations().ValidateOnStart()`): un valor inválido detiene el proceso en lugar de degradarse en silencio.
+
+```jsonc
+{
+  "Optimizer": {
+    "ModelPath": "models/rmbg-1.4-fp16.onnx", // relativa → AppContext.BaseDirectory
+    "QueueCapacity": 100,                     // 1..10000
+    "JobRetention": "00:30:00",               // 1 min .. 24 h
+    "MaxTrackedJobs": 500                     // tope duro de trabajos en memoria
+  },
+  "Cors": {
+    "AllowedOrigins": [ "http://localhost:4300" ] // al menos uno; sin AllowCredentials
+  }
+}
+```
+
+`InMemoryJobRepository` descarta los trabajos terminados al superar `JobRetention` y recorta los más antiguos al pasar de `MaxTrackedJobs`: cada trabajo guarda la imagen de entrada (hasta 15 MB) y la de salida.
 
 ## Modelo ONNX
 
-- **Modelo**: `briaai/RMBG-1.4` FP16 (~84 MB), descargado en `models/rmbg-1.4-fp16.onnx`
-- **Input**: tensor `input` shape `[1, 3, 1024, 1024]` float32, normalizado con `mean=0.5, std=1.0`
-- **Output**: tensor `output` shape `[1, 1, 1024, 1024]` float32, sigmoid ya aplicada (`[0, 1]`)
-- **Config**: `appsettings.json` → `Optimizer:ModelPath`. Si es relativo, se resuelve contra `AppContext.BaseDirectory` (junto al .dll)
-- **Reemplazo para tests**: en `OptimizerPipelineTests` se sustituye `IBackgroundRemovalService` por un fake que genera una máscara circular, permitiendo testear el pipeline sin modelo
+- **Modelo**: `briaai/RMBG-1.4` FP16 (~84 MB) en `models/rmbg-1.4-fp16.onnx`
+- **Input**: tensor `input` `[1, 3, 1024, 1024]` float32, `mean=0.5, std=1.0`
+- **Output**: tensor `output` `[1, 1, 1024, 1024]` float32, sigmoid ya aplicada
+- **Tests**: `OptimizerWebApplicationFactory` sustituye `IBackgroundRemovalService` por un doble con máscara circular, así que la suite no necesita el fichero del modelo.
 
-El modelo se copia automáticamente al output en cada build vía:
-```xml
-<None Include="..\..\models\**\*" Link="models\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
-```
+El modelo se copia al output en cada build vía `<None Include="..\..\models\**\*" ... CopyToOutputDirectory="PreserveNewest" />`.
 
-## CORS
+## Convenciones a respetar
 
-`http://localhost:4300` (frontend dev) está allowlist. Para producción, ampliar en `appsettings.Production.json` o variable de entorno.
-
-## Estado de las fases
-
-- **F0 Skeleton** ✅ — solución, 10 proyectos, `/health` 200, Scalar sirviendo.
-- **F1 Hardening arquitectura** ✅ — `Result<T>`, `GlobalExceptionMiddleware`, 7 tests NetArchTest.
-- **F2 Stub HTTP** ✅ — `POST /api/optimizer/jobs` con validación + encolar, `GET /status`, frontend con UploadDialog + ProcessingDialog.
-- **F3 Pipeline real** ✅ — `OnnxBackgroundRemovalService` + `ImageSharp*` + `WebpEncoderService` + `BackgroundService` con `Channel<T>`, `GET /download`, **pipeline end-to-end verificado con el modelo real descargado**.
-- **F4 PWA polish** (frontend) — install prompt + SwUpdate (ya cubierto por el schematic en F0).
-- **F5 Polish** — Serilog estructura fina, rate limit, health checks, cobertura 90%, CI.
+1. **Ningún literal de progreso** fuera de `OptimizerProgress`.
+2. **Ningún `switch` sobre `ErrorType` → HTTP** fuera de `ErrorHttpMapper` (hay un test que lo comprueba).
+3. **El dominio no llama a `DateTimeOffset.UtcNow`**: la hora entra como parámetro (hay un test que inspecciona el IL).
+4. **Nada de excepciones como flujo de control** en validación: usar `TryCreate`/`TryWith`/`Result`.
+5. **Toda mutación del agregado se confirma con `IJobRepository.UpdateAsync`**, aunque el repo en memoria comparta referencia.
+6. **Conversión RGBA ↔ ImageSharp** solo por `RgbaImageInterop`; morfología solo por `Morphology`.
+7. Los controladores **no validan reglas de negocio**: traducen y delegan.
 
 ## Comandos
 
@@ -119,8 +180,18 @@ dotnet run --project src/LexPCImages.API     # puerto 5232
 
 | Suite | Tests | Cubre |
 |---|---|---|
-| `UnitTests` | 34 | `ProcessJob`, `EnqueueJobHandler`, `GetJobStatusHandler`, `ProcessImageHandler`, `ImageSharpDecoder`, `ImageSharpResizer`, `WebpEncoderService`, `Result<T>` |
-| `ArchitectureTests` | 11 | Capas, interfaces vs records, no console, no System.Web |
-| `IntegrationTests` | 8 | `WebApplicationFactory` con `FakeBackgroundRemovalService`: enqueue → polling → download |
+| `UnitTests` | 151 | Dominio, casos de uso, pipelines, repositorio (con `FakeTimeProvider`), validación de firma, cola, ImageSharp, `Result<T>` |
+| `ArchitectureTests` | 17 | Capas, contratos, independencia web, reloj del dominio, mapeo de errores centralizado, no console |
+| `IntegrationTests` | 14 | `WebApplicationFactory` con doble de segmentación: enqueue → polling → download, ambos `SlotMode`, `problem+json` |
 
-**Total: 53/53 verdes.**
+**Total: 182/182 verdes.**
+
+## Estado de las fases
+
+- **F0 Skeleton** ✅
+- **F1 Hardening arquitectura** ✅
+- **F2 Stub HTTP** ✅
+- **F3 Pipeline real** ✅ — verificado end-to-end con el modelo descargado.
+- **F3.5 Refactor arquitectura** ✅ — pipelines por estrategia, patrón Options, repositorio con retención, mapeo de errores unificado, validación por firma, dominio con reloj inyectado.
+- **F4 PWA polish** (frontend)
+- **F5 Polish** — rate limiting, persistencia durable, cobertura 90%, CI.

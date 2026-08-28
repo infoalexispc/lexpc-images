@@ -1,10 +1,10 @@
 using FluentAssertions;
 using LexPCImages.Modules.Optimizer.Application.Abstractions;
-using LexPCImages.Modules.Optimizer.Infrastructure.Imaging;
+using LexPCImages.Modules.Optimizer.Infrastructure.MaskRefinement;
 
 namespace LexPCImages.UnitTests.Optimizer.Infrastructure;
 
-public sealed class ImageSharpShadowSuppressorTests
+public sealed class ShadowSuppressorTests
 {
     [Fact]
     public void Suppress_throws_when_dimensions_mismatch()
@@ -12,7 +12,7 @@ public sealed class ImageSharpShadowSuppressorTests
         var image = new DecodedImage(10, 10, new byte[10 * 10 * 4]);
         var mask = new MaskResult(20, 20, new float[20 * 20]);
 
-        var suppressor = new ImageSharpShadowSuppressor();
+        var suppressor = new ShadowSuppressor();
         var act = () => suppressor.Suppress(image, mask);
 
         act.Should().Throw<InvalidOperationException>()
@@ -30,7 +30,7 @@ public sealed class ImageSharpShadowSuppressorTests
         }
         var mask = new MaskResult(20, 20, maskValues);
 
-        var suppressor = new ImageSharpShadowSuppressor();
+        var suppressor = new ShadowSuppressor();
         var result = suppressor.Suppress(image, mask);
 
         result.Values.Should().AllSatisfy(v => v.Should().Be(0.05f));
@@ -42,7 +42,7 @@ public sealed class ImageSharpShadowSuppressorTests
         var image = MakeImage(20, 20, r: 140, g: 140, b: 140);
         var mask = FullMask(20, 20);
 
-        var suppressor = new ImageSharpShadowSuppressor();
+        var suppressor = new ShadowSuppressor();
         var result = suppressor.Suppress(image, mask);
 
         result.Values.Should().AllSatisfy(v => v.Should().Be(1f));
@@ -54,7 +54,7 @@ public sealed class ImageSharpShadowSuppressorTests
         var image = MakeImage(20, 20, r: 200, g: 200, b: 200);
         var mask = WeakMask(20, 20);
 
-        var suppressor = new ImageSharpShadowSuppressor();
+        var suppressor = new ShadowSuppressor();
         var result = suppressor.Suppress(image, mask);
 
         result.Values.Should().AllSatisfy(v => v.Should().Be(0.3f));
@@ -66,7 +66,7 @@ public sealed class ImageSharpShadowSuppressorTests
         var image = MakeImage(20, 20, r: 20, g: 20, b: 20);
         var mask = WeakMask(20, 20);
 
-        var suppressor = new ImageSharpShadowSuppressor();
+        var suppressor = new ShadowSuppressor();
         var result = suppressor.Suppress(image, mask);
 
         result.Values.Should().AllSatisfy(v => v.Should().Be(0.3f));
@@ -78,7 +78,7 @@ public sealed class ImageSharpShadowSuppressorTests
         var image = MakeImage(20, 20, r: 200, g: 50, b: 50);
         var mask = WeakMask(20, 20);
 
-        var suppressor = new ImageSharpShadowSuppressor();
+        var suppressor = new ShadowSuppressor();
         var result = suppressor.Suppress(image, mask);
 
         result.Values.Should().AllSatisfy(v => v.Should().Be(0.3f));
@@ -104,7 +104,7 @@ public sealed class ImageSharpShadowSuppressorTests
         var image = new DecodedImage(20, 20, rgba);
         var mask = new MaskResult(20, 20, maskValues);
 
-        var suppressor = new ImageSharpShadowSuppressor();
+        var suppressor = new ShadowSuppressor();
         var result = suppressor.Suppress(image, mask);
 
         for (var y = 5; y < 19; y++)
@@ -145,7 +145,7 @@ public sealed class ImageSharpShadowSuppressorTests
         var image = new DecodedImage(20, 20, rgba);
         var mask = new MaskResult(20, 20, maskValues);
 
-        var suppressor = new ImageSharpShadowSuppressor();
+        var suppressor = new ShadowSuppressor();
         var result = suppressor.Suppress(image, mask);
 
         for (var y = 0; y < 20; y++)
@@ -173,7 +173,7 @@ public sealed class ImageSharpShadowSuppressorTests
         var image = MakeImage(20, 20, r: 140, g: 140, b: 140);
         var mask = WeakMask(20, 20);
 
-        var suppressor = new ImageSharpShadowSuppressor();
+        var suppressor = new ShadowSuppressor();
         var result = suppressor.Suppress(image, mask);
 
         result.Values.Should().AllSatisfy(v => v.Should().Be(0f));
@@ -185,7 +185,7 @@ public sealed class ImageSharpShadowSuppressorTests
         var image = MakeImage(20, 20, r: 200, g: 50, b: 50);
         var mask = WeakMask(20, 20);
 
-        var suppressor = new ImageSharpShadowSuppressor();
+        var suppressor = new ShadowSuppressor();
         var result = suppressor.Suppress(image, mask);
 
         result.Values.Should().AllSatisfy(v => v.Should().Be(0.3f));
@@ -197,7 +197,7 @@ public sealed class ImageSharpShadowSuppressorTests
         var image = MakeImage(20, 20, r: 140, g: 140, b: 140);
         var mask = new MaskResult(20, 20, Enumerable.Repeat(0.3f, 20 * 20).ToArray());
 
-        var suppressor = new ImageSharpShadowSuppressor();
+        var suppressor = new ShadowSuppressor();
         var result = suppressor.Suppress(image, mask);
 
         result.Values.Should().AllSatisfy(v => v.Should().Be(0f));
@@ -223,7 +223,7 @@ public sealed class ImageSharpShadowSuppressorTests
         var image = new DecodedImage(20, 20, rgba);
         var mask = new MaskResult(20, 20, maskValues);
 
-        var suppressor = new ImageSharpShadowSuppressor();
+        var suppressor = new ShadowSuppressor();
         var result = suppressor.Suppress(image, mask);
 
         result.Values.Should().AllSatisfy(v => v.Should().Be(0f));

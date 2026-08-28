@@ -2,44 +2,27 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using FluentAssertions;
-using LexPCImages.API;
-using LexPCImages.Modules.Optimizer.Application.Abstractions;
 using LexPCImages.Modules.Optimizer.Domain.ValueObjects;
-using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.Mvc.Testing;
-using Microsoft.AspNetCore.TestHost;
-using Microsoft.Extensions.DependencyInjection;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.PixelFormats;
 
 namespace LexPCImages.IntegrationTests;
 
-public sealed class OptimizerPipelineTests : IClassFixture<WebApplicationFactory<Program>>
+public sealed class OptimizerPipelineTests : IClassFixture<OptimizerWebApplicationFactory>
 {
-    private readonly WebApplicationFactory<Program> _factory;
+    private readonly OptimizerWebApplicationFactory _factory;
 
-    public OptimizerPipelineTests(WebApplicationFactory<Program> factory)
+    public OptimizerPipelineTests(OptimizerWebApplicationFactory factory)
     {
-        _factory = factory.WithWebHostBuilder(builder =>
-        {
-            builder.UseEnvironment("Testing");
-            builder.ConfigureTestServices(services =>
-            {
-                services.RemoveAll<IBackgroundRemovalService>();
-                services.AddSingleton<IBackgroundRemovalService, FakeBackgroundRemovalService>();
-            });
-        });
+        _factory = factory;
     }
 
     [Fact]
     public async Task Full_pipeline_upload_processes_and_returns_webp()
     {
         var client = _factory.CreateClient();
-        var imageBytes = CreateTestPng(400, 300);
 
         var enqueueResponse = await client.PostAsync(
             "/api/optimizer/jobs",
-            BuildMultipart(SlotDefinition.PcHome.Id.Value, imageBytes, "image/png", "pc.png"));
+            BuildMultipart(SlotDefinition.PcHome.Id.Value, TestImages.Png(400, 300), "image/png", "pc.png"));
         enqueueResponse.StatusCode.Should().Be(HttpStatusCode.Accepted);
         var enqueued = await enqueueResponse.Content.ReadFromJsonAsync<EnqueueJobResponseDto>();
         enqueued.Should().NotBeNull();
@@ -59,30 +42,93 @@ public sealed class OptimizerPipelineTests : IClassFixture<WebApplicationFactory
     }
 
     [Fact]
+    public async Task Download_file_name_is_derived_from_the_slot()
+    {
+        var client = _factory.CreateClient();
+
+        var enqueueResponse = await client.PostAsync(
+            "/api/optimizer/jobs",
+            BuildMultipart(SlotDefinition.PcHome.Id.Value, TestImages.Png(400, 300), "image/png", "pc.png"));
+        var enqueued = await enqueueResponse.Content.ReadFromJsonAsync<EnqueueJobResponseDto>();
+        var jobId = enqueued!.JobId.ToString();
+        await PollUntilTerminalAsync(client, jobId, TimeSpan.FromSeconds(15));
+
+        var download = await client.GetAsync($"/api/optimizer/jobs/{jobId}/download");
+
+        download.Content.Headers.ContentDisposition!.FileName
+            .Should().Contain(SlotDefinition.PcHome.Id.Value);
+    }
+
+    [Fact]
+    public async Task Resize_and_pad_slot_produces_an_image_of_the_slot_size()
+    {
+        var client = _factory.CreateClient();
+        var slot = SlotDefinition.PcMainSection;
+
+        var enqueueResponse = await client.PostAsync(
+            "/api/optimizer/jobs",
+            BuildMultipart(slot.Id.Value, TestImages.Png(800, 450), "image/png", "banner.png"));
+        enqueueResponse.StatusCode.Should().Be(HttpStatusCode.Accepted);
+        var enqueued = await enqueueResponse.Content.ReadFromJsonAsync<EnqueueJobResponseDto>();
+
+        var final = await PollUntilTerminalAsync(client, enqueued!.JobId.ToString(), TimeSpan.FromSeconds(20));
+        final.Status.Should().Be("Done");
+
+        var download = await client.GetAsync($"/api/optimizer/jobs/{enqueued.JobId}/download");
+        download.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        using var image = SixLabors.ImageSharp.Image.Load(await download.Content.ReadAsByteArrayAsync());
+        image.Width.Should().Be(slot.Width);
+        image.Height.Should().Be(slot.Height);
+    }
+
+    [Fact]
+    public async Task A_decode_failure_marks_the_job_as_error_without_leaking_internals()
+    {
+        var client = _factory.CreateClient();
+        // Cabecera PNG válida con contenido corrupto: pasa la validación de firma y revienta al decodificar.
+        var corruptPng = new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0xDE, 0xAD, 0xBE, 0xEF };
+
+        var enqueueResponse = await client.PostAsync(
+            "/api/optimizer/jobs",
+            BuildMultipart(SlotDefinition.PcHome.Id.Value, corruptPng, "image/png", "pc.png"));
+        enqueueResponse.StatusCode.Should().Be(HttpStatusCode.Accepted);
+        var enqueued = await enqueueResponse.Content.ReadFromJsonAsync<EnqueueJobResponseDto>();
+
+        var final = await PollUntilTerminalAsync(client, enqueued!.JobId.ToString(), TimeSpan.FromSeconds(10));
+
+        final.Status.Should().Be("Error");
+        final.ErrorMessage.Should().Contain("Check the server logs");
+        final.ErrorMessage.Should().NotContain("SixLabors", "el mensaje no debe filtrar detalles internos");
+    }
+
+    [Fact]
     public async Task Download_returns_404_for_unknown_jobId()
     {
         var client = _factory.CreateClient();
+
         var response = await client.GetAsync($"/api/optimizer/jobs/{Guid.NewGuid()}/download");
+
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 
     [Fact]
-    public async Task Download_returns_409_when_job_is_queued()
+    public async Task Download_returns_409_when_job_is_not_done_yet()
     {
         var client = _factory.CreateClient();
-        var imageBytes = CreateTestPng(400, 300);
-
+        // Imagen grande: garantiza que el trabajo sigue en curso cuando se pide la descarga.
         var enqueueResponse = await client.PostAsync(
             "/api/optimizer/jobs",
-            BuildMultipart(SlotDefinition.PcHome.Id.Value, imageBytes, "image/png", "pc.png"));
+            BuildMultipart(SlotDefinition.PcHome.Id.Value, TestImages.Png(3000, 3000), "image/png", "pc.png"));
         var enqueued = await enqueueResponse.Content.ReadFromJsonAsync<EnqueueJobResponseDto>();
-        var jobId = enqueued!.JobId.ToString();
 
-        var download = await client.GetAsync($"/api/optimizer/jobs/{jobId}/download");
+        var download = await client.GetAsync($"/api/optimizer/jobs/{enqueued!.JobId}/download");
+
         download.StatusCode.Should().Be(HttpStatusCode.Conflict);
     }
 
-    private static MultipartFormDataContent BuildMultipart(string slotId, byte[] bytes, string contentType, string fileName)
+    private static MultipartFormDataContent BuildMultipart(
+        string slotId, byte[] bytes, string contentType, string fileName)
     {
         var form = new MultipartFormDataContent();
         form.Add(new StringContent(slotId), "slotId");
@@ -92,7 +138,8 @@ public sealed class OptimizerPipelineTests : IClassFixture<WebApplicationFactory
         return form;
     }
 
-    private static async Task<JobStatusResponseDto> PollUntilTerminalAsync(HttpClient client, string jobId, TimeSpan timeout)
+    private static async Task<JobStatusResponseDto> PollUntilTerminalAsync(
+        HttpClient client, string jobId, TimeSpan timeout)
     {
         var deadline = DateTimeOffset.UtcNow + timeout;
         JobStatusResponseDto? last = null;
@@ -105,66 +152,14 @@ public sealed class OptimizerPipelineTests : IClassFixture<WebApplicationFactory
             {
                 return last;
             }
-            await Task.Delay(200);
+            await Task.Delay(100);
         }
-        throw new Xunit.Sdk.XunitException($"Job {jobId} did not reach terminal status in {timeout}. Last: {last?.Status} (progress={last?.Progress})");
-    }
 
-    private static byte[] CreateTestPng(int width, int height)
-    {
-        using var image = new Image<Rgba32>(width, height);
-        image.ProcessPixelRows(accessor =>
-        {
-            for (var y = 0; y < accessor.Height; y++)
-            {
-                var row = accessor.GetRowSpan(y);
-                for (var x = 0; x < accessor.Width; x++)
-                {
-                    row[x] = new Rgba32(200, 50, 50, 255);
-                }
-            }
-        });
-        using var stream = new MemoryStream();
-        image.SaveAsPng(stream);
-        return stream.ToArray();
+        throw new Xunit.Sdk.XunitException(
+            $"Job {jobId} did not reach terminal status in {timeout}. Last: {last?.Status} (progress={last?.Progress})");
     }
 
     private sealed record EnqueueJobResponseDto(Guid JobId, string Status);
-    private sealed record JobStatusResponseDto(Guid JobId, string Status, string? Stage, int Progress);
-}
-
-internal sealed class FakeBackgroundRemovalService : IBackgroundRemovalService
-{
-    public Task<MaskResult> RemoveBackgroundAsync(DecodedImage image, CancellationToken cancellationToken)
-    {
-        var mask = new float[image.Width * image.Height];
-        for (var y = 0; y < image.Height; y++)
-        {
-            for (var x = 0; x < image.Width; x++)
-            {
-                var idx = y * image.Width + x;
-                var cx = image.Width / 2f;
-                var cy = image.Height / 2f;
-                var dx = (x - cx) / cx;
-                var dy = (y - cy) / cy;
-                var dist = (dx * dx + dy * dy);
-                mask[idx] = dist < 0.8f ? 1.0f : 0.0f;
-            }
-        }
-        return Task.FromResult(new MaskResult(image.Width, image.Height, mask));
-    }
-}
-
-internal static class ServiceCollectionExtensions
-{
-    public static void RemoveAll<T>(this IServiceCollection services)
-    {
-        for (var i = services.Count - 1; i >= 0; i--)
-        {
-            if (services[i].ServiceType == typeof(T))
-            {
-                services.RemoveAt(i);
-            }
-        }
-    }
+    private sealed record JobStatusResponseDto(
+        Guid JobId, string Status, string? Stage, int Progress, string? ErrorMessage = null);
 }

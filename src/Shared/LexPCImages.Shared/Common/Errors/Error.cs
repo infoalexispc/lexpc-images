@@ -20,6 +20,9 @@ public sealed record Error(ErrorType Type, string Code, string Message, IReadOnl
     public static Error DependencyFailure(string code, string message)
         => new(ErrorType.DependencyFailure, code, message);
 
+    public static Error Unavailable(string code, string message)
+        => new(ErrorType.Unavailable, code, message);
+
     public static Error Internal(string code, string message)
         => new(ErrorType.Internal, code, message);
 }

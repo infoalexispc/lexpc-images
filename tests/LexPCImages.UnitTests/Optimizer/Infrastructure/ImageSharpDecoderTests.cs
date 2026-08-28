@@ -1,6 +1,4 @@
-using System.Text;
 using FluentAssertions;
-using LexPCImages.Modules.Optimizer.Application.Abstractions;
 using LexPCImages.Modules.Optimizer.Infrastructure.Imaging;
 using SixLabors.ImageSharp;
 

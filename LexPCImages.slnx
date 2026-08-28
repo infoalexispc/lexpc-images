@@ -2,9 +2,6 @@
   <Folder Name="/src/">
     <Project Path="src/LexPCImages.API/LexPCImages.API.csproj" />
   </Folder>
-  <Folder Name="/src/Infrastructure/">
-    <Project Path="src/Infrastructure/LexPCImages.Infrastructure/LexPCImages.Infrastructure.csproj" />
-  </Folder>
   <Folder Name="/src/Modules/" />
   <Folder Name="/src/Modules/Optimizer/">
     <Project Path="src/Modules/Optimizer/LexPCImages.Modules.Optimizer.Application/LexPCImages.Modules.Optimizer.Application.csproj" />
@@ -14,6 +11,7 @@
   </Folder>
   <Folder Name="/src/Shared/">
     <Project Path="src/Shared/LexPCImages.Shared/LexPCImages.Shared.csproj" />
+    <Project Path="src/Shared/LexPCImages.Shared.Web/LexPCImages.Shared.Web.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/LexPCImages.ArchitectureTests/LexPCImages.ArchitectureTests.csproj" />

@@ -2,6 +2,11 @@ using LexPCImages.Modules.Optimizer.Domain.ValueObjects;
 
 namespace LexPCImages.Modules.Optimizer.Domain.Entities;
 
+/// <summary>
+/// Agregado raíz del módulo. Encapsula la máquina de estados de un trabajo de optimización.
+/// El reloj se pasa siempre desde fuera (<c>DateTimeOffset now</c>): el dominio no consulta
+/// <see cref="DateTimeOffset.UtcNow"/> para no depender del reloj del sistema.
+/// </summary>
 public sealed class ProcessJob
 {
     public const int MaxInputBytes = 15 * 1024 * 1024;
@@ -9,6 +14,10 @@ public sealed class ProcessJob
     public const int MinHeight = 200;
     public const int MaxWidth = 8000;
     public const int MaxHeight = 8000;
+    public const int MinProgress = 0;
+    public const int MaxProgress = 100;
+
+    private readonly RefinementOptions? _refinement;
 
     public Guid Id { get; }
     public SlotDefinition Slot { get; }
@@ -24,6 +33,11 @@ public sealed class ProcessJob
     public DateTimeOffset? StartedAt { get; private set; }
     public DateTimeOffset? CompletedAt { get; private set; }
 
+    /// <summary>Un trabajo es terminal cuando ya no puede volver a cambiar de estado.</summary>
+    public bool IsTerminal => Status is JobStatus.Done or JobStatus.Error;
+
+    public RefinementOptions EffectiveRefinement => _refinement ?? Slot.EffectiveRefinement;
+
     private ProcessJob(
         Guid id,
         SlotDefinition slot,
@@ -37,14 +51,10 @@ public sealed class ProcessJob
         InputImage = inputImage;
         InputContentType = inputContentType;
         Status = JobStatus.Queued;
-        Progress = 0;
+        Progress = MinProgress;
         CreatedAt = createdAt;
         _refinement = refinement;
     }
-
-    private readonly RefinementOptions? _refinement;
-
-    public RefinementOptions EffectiveRefinement => _refinement ?? Slot.EffectiveRefinement;
 
     public static ProcessJob Create(
         SlotDefinition slot,
@@ -52,19 +62,34 @@ public sealed class ProcessJob
         string inputContentType,
         DateTimeOffset now,
         RefinementOptions? refinement = null)
-        => new(Guid.NewGuid(), slot, inputImage, inputContentType, now, refinement);
+    {
+        ArgumentNullException.ThrowIfNull(slot);
+        ArgumentNullException.ThrowIfNull(inputImage);
+        if (inputImage.Length == 0)
+        {
+            throw new ArgumentException("Input image cannot be empty.", nameof(inputImage));
+        }
+        if (inputImage.Length > MaxInputBytes)
+        {
+            throw new ArgumentOutOfRangeException(nameof(inputImage), "Input image is too large.");
+        }
+        if (string.IsNullOrWhiteSpace(inputContentType))
+        {
+            throw new ArgumentException("Input content type cannot be empty.", nameof(inputContentType));
+        }
 
-    public void MarkProcessing(ProcessingStage stage, int percent)
+        return new(Guid.NewGuid(), slot, inputImage, inputContentType, now, refinement);
+    }
+
+    public void MarkProcessing(ProcessingStage stage, int percent, DateTimeOffset now)
     {
         EnsureTransition(JobStatus.Queued, JobStatus.Processing);
-        if (percent is < 0 or > 100)
-        {
-            throw new ArgumentOutOfRangeException(nameof(percent), "Progress must be 0-100.");
-        }
+        EnsureValidProgress(percent);
+
         Status = JobStatus.Processing;
         CurrentStage = stage;
         Progress = percent;
-        StartedAt ??= DateTimeOffset.UtcNow;
+        StartedAt ??= now;
     }
 
     public void UpdateProgress(ProcessingStage stage, int percent)
@@ -73,38 +98,70 @@ public sealed class ProcessJob
         {
             throw new InvalidOperationException($"Cannot update progress of job in status {Status}.");
         }
-        if (percent is < 0 or > 100)
-        {
-            throw new ArgumentOutOfRangeException(nameof(percent), "Progress must be 0-100.");
-        }
+        EnsureValidProgress(percent);
+
         CurrentStage = stage;
         Progress = percent;
     }
 
-    public void MarkDone(byte[] outputImage, string outputContentType)
+    /// <summary>
+    /// Cierra el trabajo con éxito. Solo es válido desde <see cref="JobStatus.Processing"/>;
+    /// repetir la llamada sobre un trabajo ya terminado es idempotente y no altera el resultado.
+    /// </summary>
+    public void MarkDone(byte[] outputImage, string outputContentType, DateTimeOffset now)
     {
-        EnsureTransition(JobStatus.Queued, JobStatus.Done, JobStatus.Processing, JobStatus.Done);
+        ArgumentNullException.ThrowIfNull(outputImage);
+        if (outputImage.Length == 0)
+        {
+            throw new ArgumentException("Output image cannot be empty.", nameof(outputImage));
+        }
+        if (string.IsNullOrWhiteSpace(outputContentType))
+        {
+            throw new ArgumentException("Output content type cannot be empty.", nameof(outputContentType));
+        }
+
         if (Status == JobStatus.Done)
         {
             return;
         }
+        EnsureTransition(JobStatus.Processing);
+
         Status = JobStatus.Done;
         CurrentStage = null;
-        Progress = 100;
+        Progress = MaxProgress;
         OutputImage = outputImage;
         OutputContentType = outputContentType;
-        CompletedAt = DateTimeOffset.UtcNow;
+        CompletedAt = now;
     }
 
-    public void MarkError(string message)
+    /// <summary>
+    /// Cierra el trabajo con error. Es idempotente sobre un trabajo ya fallido y se rechaza
+    /// sobre uno ya completado con éxito.
+    /// </summary>
+    public void MarkError(string message, DateTimeOffset now)
     {
+        if (string.IsNullOrWhiteSpace(message))
+        {
+            throw new ArgumentException("Error message cannot be empty.", nameof(message));
+        }
         if (Status == JobStatus.Done)
         {
             throw new InvalidOperationException("Cannot mark an already-done job as error.");
         }
+
         Status = JobStatus.Error;
+        CurrentStage = null;
         ErrorMessage = message;
-        CompletedAt = DateTimeOffset.UtcNow;
+        CompletedAt = now;
+    }
+
+    private static void EnsureValidProgress(int percent)
+    {
+        if (percent is < MinProgress or > MaxProgress)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(percent), percent, $"Progress must be {MinProgress}-{MaxProgress}.");
+        }
     }
 
     private void EnsureTransition(params JobStatus[] allowed)

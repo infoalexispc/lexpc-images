@@ -1,17 +1,17 @@
 using FluentAssertions;
 using LexPCImages.Modules.Optimizer.Application.Abstractions;
-using LexPCImages.Modules.Optimizer.Infrastructure.Imaging;
+using LexPCImages.Modules.Optimizer.Infrastructure.MaskRefinement;
 
 namespace LexPCImages.UnitTests.Optimizer.Infrastructure;
 
-public sealed class ImageSharpDeskMaskRefinerTests
+public sealed class DeskMaskRefinerTests
 {
     [Fact]
     public void RemoveDesk_discards_horizontal_wide_blob_at_bottom()
     {
         var mask = MakeWeakRect(80, 40, 0, 35, 79, 39);
 
-        var refiner = new ImageSharpDeskMaskRefiner();
+        var refiner = new DeskMaskRefiner();
         var result = refiner.RemoveDesk(mask);
 
         result.Values.Should().AllSatisfy(v => v.Should().Be(0f));
@@ -26,7 +26,7 @@ public sealed class ImageSharpDeskMaskRefinerTests
             FillRect(values, w, h, 27, 5, 29, 34, 0.9f);
         }));
 
-        var refiner = new ImageSharpDeskMaskRefiner();
+        var refiner = new DeskMaskRefiner();
         var result = refiner.RemoveDesk(mask);
 
         for (var y = 5; y <= 34; y++)
@@ -47,7 +47,7 @@ public sealed class ImageSharpDeskMaskRefinerTests
     {
         var mask = MakeSolidRect(40, 40, 15, 10, 24, 29);
 
-        var refiner = new ImageSharpDeskMaskRefiner();
+        var refiner = new DeskMaskRefiner();
         var result = refiner.RemoveDesk(mask);
 
         for (var y = 10; y <= 29; y++)
@@ -64,7 +64,7 @@ public sealed class ImageSharpDeskMaskRefinerTests
     {
         var mask = new MaskResult(40, 40, new float[40 * 40]);
 
-        var refiner = new ImageSharpDeskMaskRefiner();
+        var refiner = new DeskMaskRefiner();
         var result = refiner.RemoveDesk(mask);
 
         result.Values.Should().AllSatisfy(v => v.Should().Be(0f));
@@ -79,7 +79,7 @@ public sealed class ImageSharpDeskMaskRefinerTests
             FillRect(values, w, h, 0, 35, 39, 39, 0.4f);
         }));
 
-        var refiner = new ImageSharpDeskMaskRefiner();
+        var refiner = new DeskMaskRefiner();
         var result = refiner.RemoveDesk(mask);
 
         for (var y = 10; y <= 29; y++)
@@ -99,7 +99,7 @@ public sealed class ImageSharpDeskMaskRefinerTests
             FillRect(values, w, h, 0, 39, 79, 39, 0.4f);
         }));
 
-        var refiner = new ImageSharpDeskMaskRefiner();
+        var refiner = new DeskMaskRefiner();
         var result = refiner.RemoveDesk(mask);
 
         result.Values.Should().AllSatisfy(v => v.Should().Be(0f));

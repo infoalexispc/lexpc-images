@@ -1,4 +1,5 @@
 using LexPCImages.Modules.Optimizer.Application.Abstractions;
+using LexPCImages.Modules.Optimizer.Infrastructure.Imaging.Internal;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
 
@@ -6,14 +7,12 @@ namespace LexPCImages.Modules.Optimizer.Infrastructure.Imaging;
 
 public sealed class ImageSharpDecoder : IImageDecoder
 {
-    public async Task<DecodedImage> DecodeAsync(byte[] imageBytes, CancellationToken cancellationToken)
+    public Task<DecodedImage> DecodeAsync(byte[] imageBytes, CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(imageBytes);
         cancellationToken.ThrowIfCancellationRequested();
+
         using var image = Image.Load<Rgba32>(imageBytes);
-        var width = image.Width;
-        var height = image.Height;
-        var rgba = new byte[width * height * 4];
-        image.CopyPixelDataTo(rgba);
-        return new DecodedImage(width, height, rgba);
+        return Task.FromResult(RgbaImageInterop.ToDecodedImage(image));
     }
 }

@@ -1,17 +1,24 @@
 using LexPCImages.Modules.Optimizer.Application.UseCases.EnqueueJob;
+using LexPCImages.Modules.Optimizer.Application.UseCases.GetJobDownload;
 using LexPCImages.Modules.Optimizer.Application.UseCases.GetJobStatus;
-using LexPCImages.Modules.Optimizer.Domain.Abstractions;
+using LexPCImages.Modules.Optimizer.Domain.Entities;
 using LexPCImages.Modules.Optimizer.Domain.Errors;
 using LexPCImages.Modules.Optimizer.Domain.ValueObjects;
+using LexPCImages.Modules.Optimizer.Presentation.Requests;
 using LexPCImages.Modules.Optimizer.Presentation.Responses;
 using LexPCImages.Shared.Common;
 using LexPCImages.Shared.Common.Errors;
+using LexPCImages.Shared.Web.Http;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 
 namespace LexPCImages.Modules.Optimizer.Presentation.Controllers;
 
+/// <summary>
+/// Adaptador HTTP del módulo. No contiene reglas de negocio: transporta la petición al caso de
+/// uso y traduce el <see cref="Result{T}"/> a una respuesta.
+/// </summary>
 [ApiController]
 [Route("api/optimizer/jobs")]
 [AllowAnonymous]
@@ -19,132 +26,91 @@ public sealed class OptimizerController : ControllerBase
 {
     private readonly EnqueueJobHandler _enqueue;
     private readonly GetJobStatusHandler _getStatus;
-    private readonly IJobRepository _jobs;
+    private readonly GetJobDownloadHandler _getDownload;
 
     public OptimizerController(
         EnqueueJobHandler enqueue,
         GetJobStatusHandler getStatus,
-        IJobRepository jobs)
+        GetJobDownloadHandler getDownload)
     {
         _enqueue = enqueue;
         _getStatus = getStatus;
-        _jobs = jobs;
+        _getDownload = getDownload;
     }
 
     [HttpPost]
-    [RequestSizeLimit(20 * 1024 * 1024)]
-    [RequestFormLimits(MultipartBodyLengthLimit = 20 * 1024 * 1024)]
+    [RequestSizeLimit(ProcessJob.MaxInputBytes)]
+    [RequestFormLimits(MultipartBodyLengthLimit = ProcessJob.MaxInputBytes)]
     [Consumes("multipart/form-data")]
     [ProducesResponseType(typeof(EnqueueJobResponse), StatusCodes.Status202Accepted)]
-    [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status503ServiceUnavailable)]
     public async Task<IActionResult> Enqueue(
-        [FromForm] string slotId,
-        [FromForm] IFormFile file,
-        [FromForm] bool? shadowSuppression = null,
-        [FromForm] bool? deskRemoval = null,
-        [FromForm] bool? legProtection = null,
-        [FromForm] double? cropMarginPct = null,
-        CancellationToken cancellationToken = default)
+        [FromForm] EnqueueJobForm form,
+        CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(slotId))
+        if (!SlotId.TryParse(form.SlotId, out var slotId))
         {
-            return BadRequest(new { code = "optimizer.slot_id_required", message = "slotId is required." });
+            return Problem(OptimizerErrors.SlotIdRequired);
         }
-        if (file is null || file.Length == 0)
+        if (form.File is not { Length: > 0 } file)
         {
-            return BadRequest(new { code = "optimizer.file_required", message = "file is required and cannot be empty." });
+            return Problem(OptimizerErrors.FileRequired);
         }
-        if (cropMarginPct is < 0 or > 0.5)
-        {
-            return BadRequest(new { code = "optimizer.crop_margin_out_of_range", message = "cropMarginPct must be between 0 and 0.5." });
-        }
-
-        await using var stream = file.OpenReadStream();
-        using var memory = new MemoryStream();
-        await stream.CopyToAsync(memory, cancellationToken);
-
-        var refinement = new RefinementOverrides(
-            SuppressShadow: shadowSuppression,
-            RemoveDesk: deskRemoval,
-            ProtectLegs: legProtection,
-            CropMarginPct: cropMarginPct);
 
         var command = new EnqueueJobCommand(
-            SlotId: LexPCImages.Modules.Optimizer.Domain.ValueObjects.SlotId.Parse(slotId),
-            ImageBytes: memory.ToArray(),
-            ContentType: file.ContentType,
-            Refinement: refinement);
+            slotId,
+            await ReadAllBytesAsync(file, cancellationToken),
+            file.ContentType,
+            form.ToRefinementOverrides());
 
         var result = await _enqueue.HandleAsync(command, cancellationToken);
         if (result.IsFailure)
         {
-            return MapError(result.Error!);
+            return Problem(result.ErrorOrThrow());
         }
 
-        var response = new EnqueueJobResponse(result.Value!.JobId, result.Value.Status.ToString());
+        var response = EnqueueJobResponse.From(result.ValueOrThrow());
         return AcceptedAtAction(nameof(GetStatus), new { id = response.JobId }, response);
     }
 
-    [HttpGet("{id:guid}")]
+    [HttpGet("{id:guid}", Name = nameof(GetStatus))]
     [ProducesResponseType(typeof(JobStatusResponse), StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetStatus(Guid id, CancellationToken cancellationToken)
     {
         var result = await _getStatus.HandleAsync(new GetJobStatusQuery(id), cancellationToken);
-        if (result.IsFailure)
-        {
-            return MapError(result.Error!);
-        }
-        return Ok(JobStatusResponseMapper.From(result.Value!));
+        return result.IsFailure
+            ? Problem(result.ErrorOrThrow())
+            : Ok(JobStatusResponse.From(result.ValueOrThrow()));
     }
 
     [HttpGet("{id:guid}/download")]
     [ProducesResponseType(StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status404NotFound)]
-    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
     public async Task<IActionResult> Download(Guid id, CancellationToken cancellationToken)
     {
-        var job = await _jobs.GetAsync(id, cancellationToken);
-        if (job is null)
+        var result = await _getDownload.HandleAsync(new GetJobDownloadQuery(id), cancellationToken);
+        if (result.IsFailure)
         {
-            return MapError(OptimizerErrors.JobNotFound(id.ToString()));
-        }
-        if (job.Status != JobStatus.Done || job.OutputImage is null || job.OutputContentType is null)
-        {
-            return Conflict(new
-            {
-                code = "optimizer.job_not_ready",
-                message = $"Job is in status '{job.Status}'. Download is only available when status is 'Done'.",
-                status = job.Status.ToString(),
-                progress = job.Progress,
-            });
+            return Problem(result.ErrorOrThrow());
         }
 
-        var fileName = $"pc-home-{id:N}.webp";
-        return File(job.OutputImage, job.OutputContentType, fileName);
+        var download = result.ValueOrThrow();
+        return File(download.Content, download.ContentType, download.FileName);
     }
 
-    private IActionResult MapError(Error error)
+    private static async Task<byte[]> ReadAllBytesAsync(IFormFile file, CancellationToken cancellationToken)
     {
-        var problem = new
-        {
-            type = "https://datatracker.ietf.org/doc/html/rfc9110#section-15",
-            title = error.Type.ToString(),
-            status = StatusCodes.Status400BadRequest,
-            code = error.Code,
-            detail = error.Message,
-        };
-        return StatusCode(
-            error.Type switch
-            {
-                ErrorType.NotFound => StatusCodes.Status404NotFound,
-                ErrorType.Validation => StatusCodes.Status400BadRequest,
-                ErrorType.Conflict => StatusCodes.Status409Conflict,
-                ErrorType.Unauthorized => StatusCodes.Status401Unauthorized,
-                ErrorType.Forbidden => StatusCodes.Status403Forbidden,
-                _ => StatusCodes.Status500InternalServerError,
-            },
-            problem);
+        await using var stream = file.OpenReadStream();
+        using var buffer = new MemoryStream((int)Math.Min(file.Length, ProcessJob.MaxInputBytes));
+        await stream.CopyToAsync(buffer, cancellationToken);
+        return buffer.ToArray();
     }
+
+    /// <summary>Traduce el error del dominio a <c>application/problem+json</c> con el mapeo compartido.</summary>
+    private IActionResult Problem(Error error) =>
+        ErrorHttpMapper.ToProblemResult(error, HttpContext.Request.Path);
 }

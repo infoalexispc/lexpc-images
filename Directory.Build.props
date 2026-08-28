@@ -8,5 +8,14 @@
     <WarningsNotAsErrors>NU1903</WarningsNotAsErrors>
     <AnalysisLevel>latest</AnalysisLevel>
     <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <!-- Requisito de IDE0005 (usings innecesarios) para que el analizador corra en build.
+         CS1591 se silencia: no se exige XML doc en todos los miembros públicos. -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+
+  <!-- Proyectos de test: no se empaquetan. -->
+  <PropertyGroup Condition="$([System.String]::Copy('$(MSBuildProjectName)').EndsWith('Tests'))">
+    <IsPackable>false</IsPackable>
   </PropertyGroup>
 </Project>

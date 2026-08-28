@@ -4,7 +4,17 @@ namespace LexPCImages.Modules.Optimizer.Application.Abstractions;
 
 public interface IJobProgressNotifier
 {
-    void OnStageStarted(Guid jobId, ProcessingStage stage, int percent);
-    void OnStageCompleted(Guid jobId, ProcessingStage stage, int percent);
-    void OnError(Guid jobId, string message);
+    Task OnStageStartedAsync(
+        Guid jobId,
+        ProcessingStage stage,
+        int percent,
+        CancellationToken cancellationToken);
+
+    Task OnStageCompletedAsync(
+        Guid jobId,
+        ProcessingStage stage,
+        int percent,
+        CancellationToken cancellationToken);
+
+    Task OnErrorAsync(Guid jobId, string message, CancellationToken cancellationToken);
 }

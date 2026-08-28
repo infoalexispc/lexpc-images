@@ -1,4 +1,5 @@
 using LexPCImages.Modules.Optimizer.Application.Abstractions;
+using LexPCImages.Modules.Optimizer.Infrastructure.Imaging.Internal;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
 using SixLabors.ImageSharp.Processing;
@@ -6,148 +7,95 @@ using ImgResizeMode = SixLabors.ImageSharp.Processing.ResizeMode;
 
 namespace LexPCImages.Modules.Optimizer.Infrastructure.Imaging;
 
+/// <summary>
+/// Escala la imagen manteniendo la proporción y rellena hasta el tamaño del slot con el color
+/// dominante del borde, de modo que el relleno pasa desapercibido sobre fondos lisos.
+/// </summary>
 public sealed class ImageSharpPadder : IImagePadder
 {
     private const int BorderSampleCount = 16;
 
     public PaddedImage Pad(DecodedImage image, int targetWidth, int targetHeight)
     {
-        if (targetWidth <= 0 || targetHeight <= 0)
-        {
-            throw new ArgumentOutOfRangeException(
-                nameof(targetWidth),
-                $"Target dimensions must be positive ({targetWidth}x{targetHeight}).");
-        }
+        ArgumentNullException.ThrowIfNull(image);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(targetWidth);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(targetHeight);
 
         var background = DetectBackgroundColor(image);
-        var (resized, offsetX, offsetY) = ResizeKeepingAspect(
-            image, targetWidth, targetHeight, background);
-
-        return new PaddedImage(resized, offsetX, offsetY);
-    }
-
-    private static Rgba32 DetectBackgroundColor(DecodedImage image)
-    {
-        var samples = new Dictionary<long, int>();
-        var width = image.Width;
-        var height = image.Height;
-
-        for (var i = 0; i < BorderSampleCount; i++)
-        {
-            var t = (double)i / Math.Max(1, BorderSampleCount - 1);
-            var x = (int)Math.Round(t * (width - 1));
-            var y = (int)Math.Round(t * (height - 1));
-            Sample(image, 0, x, samples);
-            Sample(image, height - 1, x, samples);
-            Sample(image, y, 0, samples);
-            Sample(image, y, width - 1, samples);
-        }
-
-        var dominant = samples.OrderByDescending(kv => kv.Value).First();
-        var packed = dominant.Key;
-        return new Rgba32(
-            (byte)((packed >> 16) & 0xFF),
-            (byte)((packed >> 8) & 0xFF),
-            (byte)(packed & 0xFF),
-            255);
-    }
-
-    private static void Sample(DecodedImage image, int y, int x, Dictionary<long, int> samples)
-    {
-        if ((uint)x >= (uint)image.Width || (uint)y >= (uint)image.Height)
-        {
-            return;
-        }
-        var offset = (y * image.Width + x) * 4;
-        var r = image.Rgba[offset];
-        var g = image.Rgba[offset + 1];
-        var b = image.Rgba[offset + 2];
-        var packed = ((long)r << 16) | ((long)g << 8) | b;
-        samples.TryGetValue(packed, out var count);
-        samples[packed] = count + 1;
-    }
-
-    private static (DecodedImage Resized, int OffsetX, int OffsetY) ResizeKeepingAspect(
-        DecodedImage source,
-        int targetWidth,
-        int targetHeight,
-        Rgba32 background)
-    {
-        var sourceWidth = source.Width;
-        var sourceHeight = source.Height;
-        var sourceAspect = (double)sourceWidth / sourceHeight;
-        var targetAspect = (double)targetWidth / targetHeight;
-
-        int scaledWidth;
-        int scaledHeight;
-        if (sourceAspect > targetAspect)
-        {
-            scaledWidth = targetWidth;
-            scaledHeight = Math.Max(1, (int)Math.Round(targetWidth / sourceAspect));
-        }
-        else
-        {
-            scaledHeight = targetHeight;
-            scaledWidth = Math.Max(1, (int)Math.Round(targetHeight * sourceAspect));
-        }
-
+        var (scaledWidth, scaledHeight) = ScaleToFit(image.Width, image.Height, targetWidth, targetHeight);
         var offsetX = (targetWidth - scaledWidth) / 2;
         var offsetY = (targetHeight - scaledHeight) / 2;
 
-        var output = new byte[targetWidth * targetHeight * 4];
-        FillBackground(output, targetWidth, targetHeight, background);
-
-        using var sourceImage = WrapRgba(source);
-        sourceImage.Mutate(ctx => ctx.Resize(new ResizeOptions
+        using var sourceImage = RgbaImageInterop.ToImage(image);
+        sourceImage.Mutate(context => context.Resize(new ResizeOptions
         {
             Size = new Size(scaledWidth, scaledHeight),
             Mode = ImgResizeMode.Stretch,
             Sampler = KnownResamplers.Lanczos3,
         }));
+        var scaled = RgbaImageInterop.ToDecodedImage(sourceImage);
 
-        var rgba = new byte[scaledWidth * scaledHeight * 4];
-        sourceImage.ProcessPixelRows(accessor =>
-        {
-            for (var y = 0; y < accessor.Height; y++)
-            {
-                var row = accessor.GetRowSpan(y);
-                var dest = y * scaledWidth * 4;
-                for (var x = 0; x < accessor.Width; x++)
-                {
-                    rgba[dest + x * 4] = row[x].R;
-                    rgba[dest + x * 4 + 1] = row[x].G;
-                    rgba[dest + x * 4 + 2] = row[x].B;
-                    rgba[dest + x * 4 + 3] = row[x].A;
-                }
-            }
-        });
-        CopyIntoOutput(output, rgba, scaledWidth, scaledHeight, targetWidth, offsetX, offsetY);
+        var output = new byte[targetWidth * targetHeight * RgbaImageInterop.BytesPerPixel];
+        FillBackground(output, background);
+        CopyInto(output, targetWidth, scaled, offsetX, offsetY);
 
-        return (new DecodedImage(targetWidth, targetHeight, output), offsetX, offsetY);
+        return new PaddedImage(new DecodedImage(targetWidth, targetHeight, output), offsetX, offsetY);
     }
 
-    private static Image<Rgba32> WrapRgba(DecodedImage image)
+    private static (int Width, int Height) ScaleToFit(
+        int sourceWidth, int sourceHeight, int targetWidth, int targetHeight)
     {
-        var img = new Image<Rgba32>(image.Width, image.Height);
-        img.ProcessPixelRows(accessor =>
-        {
-            for (var y = 0; y < accessor.Height; y++)
-            {
-                var row = accessor.GetRowSpan(y);
-                var sourceRowOffset = y * image.Width * 4;
-                for (var x = 0; x < accessor.Width; x++)
-                {
-                    var i = sourceRowOffset + x * 4;
-                    row[x] = new Rgba32(image.Rgba[i], image.Rgba[i + 1], image.Rgba[i + 2], image.Rgba[i + 3]);
-                }
-            }
-        });
-        return img;
+        var sourceAspect = (double)sourceWidth / sourceHeight;
+        var targetAspect = (double)targetWidth / targetHeight;
+
+        return sourceAspect > targetAspect
+            ? (targetWidth, Math.Max(1, (int)Math.Round(targetWidth / sourceAspect)))
+            : (Math.Max(1, (int)Math.Round(targetHeight * sourceAspect)), targetHeight);
     }
 
-    private static void FillBackground(byte[] output, int width, int height, Rgba32 background)
+    /// <summary>Color más repetido a lo largo de los cuatro bordes de la imagen.</summary>
+    private static Rgba32 DetectBackgroundColor(DecodedImage image)
     {
-        for (var i = 0; i < output.Length; i += 4)
+        var samples = new Dictionary<int, int>();
+        for (var i = 0; i < BorderSampleCount; i++)
+        {
+            var t = (double)i / Math.Max(1, BorderSampleCount - 1);
+            var x = (int)Math.Round(t * (image.Width - 1));
+            var y = (int)Math.Round(t * (image.Height - 1));
+            Sample(image, x, 0, samples);
+            Sample(image, x, image.Height - 1, samples);
+            Sample(image, 0, y, samples);
+            Sample(image, image.Width - 1, y, samples);
+        }
+
+        if (samples.Count == 0)
+        {
+            return new Rgba32(255, 255, 255, 255);
+        }
+
+        var packed = samples.MaxBy(entry => entry.Value).Key;
+        return new Rgba32(
+            (byte)((packed >> 16) & 0xFF),
+            (byte)((packed >> 8) & 0xFF),
+            (byte)(packed & 0xFF),
+            byte.MaxValue);
+    }
+
+    private static void Sample(DecodedImage image, int x, int y, Dictionary<int, int> samples)
+    {
+        if ((uint)x >= (uint)image.Width || (uint)y >= (uint)image.Height)
+        {
+            return;
+        }
+
+        var offset = ((y * image.Width) + x) * RgbaImageInterop.BytesPerPixel;
+        var packed = (image.Rgba[offset] << 16) | (image.Rgba[offset + 1] << 8) | image.Rgba[offset + 2];
+        samples[packed] = samples.GetValueOrDefault(packed) + 1;
+    }
+
+    private static void FillBackground(byte[] output, Rgba32 background)
+    {
+        for (var i = 0; i < output.Length; i += RgbaImageInterop.BytesPerPixel)
         {
             output[i] = background.R;
             output[i + 1] = background.G;
@@ -156,28 +104,14 @@ public sealed class ImageSharpPadder : IImagePadder
         }
     }
 
-    private static void CopyIntoOutput(
-        byte[] output,
-        byte[] source,
-        int sourceWidth,
-        int sourceHeight,
-        int targetWidth,
-        int offsetX,
-        int offsetY)
+    private static void CopyInto(byte[] output, int targetWidth, DecodedImage source, int offsetX, int offsetY)
     {
-        for (var y = 0; y < sourceHeight; y++)
+        var rowBytes = source.Width * RgbaImageInterop.BytesPerPixel;
+        for (var y = 0; y < source.Height; y++)
         {
-            var srcRow = y * sourceWidth * 4;
-            var dstRow = (y + offsetY) * targetWidth * 4 + offsetX * 4;
-            for (var x = 0; x < sourceWidth; x++)
-            {
-                var srcIdx = srcRow + x * 4;
-                var dstIdx = dstRow + x * 4;
-                output[dstIdx] = source[srcIdx];
-                output[dstIdx + 1] = source[srcIdx + 1];
-                output[dstIdx + 2] = source[srcIdx + 2];
-                output[dstIdx + 3] = source[srcIdx + 3];
-            }
+            var sourceOffset = y * rowBytes;
+            var destinationOffset = (((y + offsetY) * targetWidth) + offsetX) * RgbaImageInterop.BytesPerPixel;
+            Array.Copy(source.Rgba, sourceOffset, output, destinationOffset, rowBytes);
         }
     }
 }

@@ -14,7 +14,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Shared\LexPCImages.Shared\LexPCImages.Shared.csproj" />
-    <ProjectReference Include="..\Infrastructure\LexPCImages.Infrastructure\LexPCImages.Infrastructure.csproj" />
+    <ProjectReference Include="..\Shared\LexPCImages.Shared.Web\LexPCImages.Shared.Web.csproj" />
     <ProjectReference Include="..\Modules\Optimizer\LexPCImages.Modules.Optimizer.Domain\LexPCImages.Modules.Optimizer.Domain.csproj" />
     <ProjectReference Include="..\Modules\Optimizer\LexPCImages.Modules.Optimizer.Application\LexPCImages.Modules.Optimizer.Application.csproj" />
     <ProjectReference Include="..\Modules\Optimizer\LexPCImages.Modules.Optimizer.Infrastructure\LexPCImages.Modules.Optimizer.Infrastructure.csproj" />

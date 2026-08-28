@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <AssemblyName>LexPCImages.Shared.Web</AssemblyName>
+    <RootNamespace>LexPCImages.Shared.Web</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\LexPCImages.Shared\LexPCImages.Shared.csproj" />
+  </ItemGroup>
+</Project>

@@ -1,5 +1,5 @@
-using System.Threading.Channels;
-using LexPCImages.Modules.Optimizer.Domain.Abstractions;
+using LexPCImages.Modules.Optimizer.Application.Ports;
+using LexPCImages.Modules.Optimizer.Application.Validation;
 using LexPCImages.Modules.Optimizer.Domain.Entities;
 using LexPCImages.Modules.Optimizer.Domain.Errors;
 using LexPCImages.Modules.Optimizer.Domain.ValueObjects;
@@ -23,25 +23,22 @@ public sealed record EnqueueJobCommand(
 
 public sealed record EnqueueJobResult(Guid JobId, JobStatus Status);
 
+/// <summary>
+/// Valida la petición, crea el trabajo y lo encola. Es el único punto donde se valida la entrada:
+/// la capa web se limita a traducir el <see cref="Error"/> resultante a HTTP.
+/// </summary>
 public sealed class EnqueueJobHandler
 {
-    private static readonly HashSet<string> AllowedContentTypes = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "image/jpeg",
-        "image/png",
-        "image/webp",
-    };
-
     private readonly IJobRepository _jobs;
     private readonly ISlotRegistry _slots;
-    private readonly Channel<Guid> _processingQueue;
+    private readonly IJobQueueWriter _processingQueue;
     private readonly ILogger<EnqueueJobHandler> _logger;
     private readonly TimeProvider _time;
 
     public EnqueueJobHandler(
         IJobRepository jobs,
         ISlotRegistry slots,
-        Channel<Guid> processingQueue,
+        IJobQueueWriter processingQueue,
         ILogger<EnqueueJobHandler> logger,
         TimeProvider time)
     {
@@ -52,8 +49,12 @@ public sealed class EnqueueJobHandler
         _time = time;
     }
 
-    public async Task<Result<EnqueueJobResult>> HandleAsync(EnqueueJobCommand command, CancellationToken cancellationToken)
+    public async Task<Result<EnqueueJobResult>> HandleAsync(
+        EnqueueJobCommand command,
+        CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(command);
+
         var slot = _slots.FindById(command.SlotId);
         if (slot is null)
         {
@@ -61,22 +62,31 @@ public sealed class EnqueueJobHandler
             return OptimizerErrors.SlotNotFound;
         }
 
-        var validation = ValidateImage(command.ImageBytes, command.ContentType);
-        if (validation is not null)
+        if (ValidateImage(command.ImageBytes, command.ContentType) is { } validationError)
         {
-            return validation;
+            return validationError;
         }
 
-        var refinement = ApplyOverrides(slot.EffectiveRefinement, command.Refinement);
+        if (!slot.EffectiveRefinement.TryWith(
+                command.Refinement?.SuppressShadow,
+                command.Refinement?.RemoveDesk,
+                command.Refinement?.ProtectLegs,
+                command.Refinement?.CropMarginPct,
+                out var refinement))
+        {
+            return OptimizerErrors.CropMarginOutOfRange;
+        }
+
         var job = ProcessJob.Create(
             slot, command.ImageBytes, command.ContentType, _time.GetUtcNow(), refinement);
         await _jobs.AddAsync(job, cancellationToken);
 
-        if (!_processingQueue.Writer.TryWrite(job.Id))
+        if (!_processingQueue.TryEnqueue(job.Id))
         {
             _logger.LogError("Failed to enqueue job {JobId} into the processing channel", job.Id);
-            job.MarkError("Failed to enqueue the job for processing.");
-            return OptimizerErrors.InternalProcessingEnqueueFailed;
+            job.MarkError("The processing queue is full.", _time.GetUtcNow());
+            await _jobs.UpdateAsync(job, cancellationToken);
+            return OptimizerErrors.ProcessingQueueFull;
         }
 
         _logger.LogInformation(
@@ -85,29 +95,6 @@ public sealed class EnqueueJobHandler
             refinement.SuppressShadow, refinement.RemoveDesk, refinement.ProtectLegs, refinement.CropMarginPct);
 
         return new EnqueueJobResult(job.Id, job.Status);
-    }
-
-    private static RefinementOptions ApplyOverrides(
-        RefinementOptions defaults,
-        RefinementOverrides? overrides)
-    {
-        if (overrides is null)
-        {
-            return defaults;
-        }
-        try
-        {
-            return defaults.With(
-                suppressShadow: overrides.SuppressShadow,
-                removeDesk: overrides.RemoveDesk,
-                protectLegs: overrides.ProtectLegs,
-                cropMarginPct: overrides.CropMarginPct);
-        }
-        catch (ArgumentOutOfRangeException ex)
-        {
-            throw new ArgumentOutOfRangeException(
-                "refinement", ex.ParamName, ex.Message);
-        }
     }
 
     private static Error? ValidateImage(byte[] imageBytes, string contentType)
@@ -120,9 +107,14 @@ public sealed class EnqueueJobHandler
         {
             return OptimizerErrors.ImageTooLarge;
         }
-        if (!AllowedContentTypes.Contains(contentType))
+        if (!ImageContentTypes.IsAllowed(contentType))
         {
             return OptimizerErrors.ImageFormatNotSupported;
+        }
+        // El Content-Type lo declara el cliente: se contrasta con la firma real del fichero.
+        if (!ImageContentTypes.HasSupportedSignature(imageBytes))
+        {
+            return OptimizerErrors.ImageContentDoesNotMatchDeclaredFormat;
         }
         return null;
     }

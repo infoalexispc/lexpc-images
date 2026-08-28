@@ -6,7 +6,27 @@ public readonly record struct SlotId
 
     private SlotId(string value) => Value = value;
 
-    public static SlotId Parse(string value) => new(value);
+    public static SlotId Parse(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            throw new ArgumentException("Slot id cannot be empty.", nameof(value));
+        }
+
+        return new(value.Trim());
+    }
+
+    public static bool TryParse(string? value, out SlotId slotId)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            slotId = default;
+            return false;
+        }
+
+        slotId = new(value.Trim());
+        return true;
+    }
 
     public override string ToString() => Value;
 }

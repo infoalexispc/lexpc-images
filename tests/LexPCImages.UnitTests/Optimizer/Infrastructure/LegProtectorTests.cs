@@ -1,10 +1,10 @@
 using FluentAssertions;
 using LexPCImages.Modules.Optimizer.Application.Abstractions;
-using LexPCImages.Modules.Optimizer.Infrastructure.Imaging;
+using LexPCImages.Modules.Optimizer.Infrastructure.MaskRefinement;
 
 namespace LexPCImages.UnitTests.Optimizer.Infrastructure;
 
-public sealed class ImageSharpLegProtectorTests
+public sealed class LegProtectorTests
 {
     [Fact]
     public void Protect_throws_when_dimensions_mismatch()
@@ -12,7 +12,7 @@ public sealed class ImageSharpLegProtectorTests
         var image = new DecodedImage(10, 10, new byte[10 * 10 * 4]);
         var mask = new MaskResult(20, 20, new float[20 * 20]);
 
-        var protector = new ImageSharpLegProtector();
+        var protector = new LegProtector();
         var act = () => protector.Protect(image, mask);
 
         act.Should().Throw<InvalidOperationException>().WithMessage("*dimensions*");
@@ -23,7 +23,7 @@ public sealed class ImageSharpLegProtectorTests
     {
         var (image, mask) = MakeLegScene(40, 40, legMinX: 18, legMaxX: 21, legMinY: 5, legMaxY: 34);
 
-        var protector = new ImageSharpLegProtector();
+        var protector = new LegProtector();
         var result = protector.Protect(image, mask);
 
         for (var y = 5; y <= 34; y++)
@@ -54,7 +54,7 @@ public sealed class ImageSharpLegProtectorTests
         var image = new DecodedImage(40, 40, rgba);
         var mask = new MaskResult(40, 40, maskValues);
 
-        var protector = new ImageSharpLegProtector();
+        var protector = new LegProtector();
         var result = protector.Protect(image, mask);
 
         for (var y = 5; y <= 34; y++)
@@ -72,7 +72,7 @@ public sealed class ImageSharpLegProtectorTests
         var (image, mask) = MakeLegScene(40, 40, legMinX: 18, legMaxX: 21, legMinY: 5, legMaxY: 34);
         FillRect(mask.Values, 40, 40, 15, 5, 24, 34, 1f);
 
-        var protector = new ImageSharpLegProtector();
+        var protector = new LegProtector();
         var result = protector.Protect(image, mask);
 
         for (var y = 5; y <= 34; y++)
@@ -89,7 +89,7 @@ public sealed class ImageSharpLegProtectorTests
     {
         var (image, mask) = MakeLegScene(40, 40, legMinX: 18, legMaxX: 21, legMinY: 5, legMaxY: 34);
 
-        var protector = new ImageSharpLegProtector();
+        var protector = new LegProtector();
         var result = protector.Protect(image, mask);
 
         foreach (var v in result.Values)
@@ -114,7 +114,7 @@ public sealed class ImageSharpLegProtectorTests
         var image = new DecodedImage(40, 40, rgba);
         var mask = new MaskResult(40, 40, maskValues);
 
-        var protector = new ImageSharpLegProtector();
+        var protector = new LegProtector();
         var result = protector.Protect(image, mask);
 
         for (var x = 5; x <= 34; x++)
