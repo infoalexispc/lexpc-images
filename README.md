@@ -27,6 +27,7 @@ Decisiones que conviene conocer antes de tocar el código:
 - **`Result<T>` en vez de excepciones** para los errores esperables. El middleware global responde siempre `500` genérico: si algo llega hasta allí es un fallo no previsto.
 - **Una sola traducción `Error` → HTTP**, en `LexPCImages.Shared.Web`, usada tanto por los controladores como por el host.
 - **El dominio no lee el reloj**: la marca de tiempo entra como parámetro y en producción viene del `TimeProvider` registrado.
+- **El dominio no referencia nada**, ni siquiera `Shared`: es la capa más interna y solo usa el BCL.
 - **Configuración con el patrón Options**, validada al arrancar: un valor mal escrito detiene el proceso en lugar de degradarse en silencio.
 
 Más detalle: [`AGENTS.md`](./AGENTS.md).
@@ -93,7 +94,7 @@ dotnet test LexPCImages.slnx
 | Suite | Tests | Cubre |
 |---|---|---|
 | `UnitTests` | 151 | Dominio, casos de uso, pipelines, repositorio, validación, ImageSharp, `Result<T>` |
-| `ArchitectureTests` | 17 | Capas, contratos, independencia web, reloj del dominio, mapeo de errores |
+| `ArchitectureTests` | 18 | Capas, contratos, independencia web, reloj del dominio, mapeo de errores |
 | `IntegrationTests` | 14 | `WebApplicationFactory`: enqueue → polling → download, ambos slots, `problem+json` |
 
 Cobertura objetivo ≥ 90% (F5+).

@@ -4,7 +4,9 @@
     <RootNamespace>LexPCImages.Modules.Optimizer.Domain</RootNamespace>
   </PropertyGroup>
 
-  <ItemGroup>
-    <ProjectReference Include="..\..\..\Shared\LexPCImages.Shared\LexPCImages.Shared.csproj" />
-  </ItemGroup>
+  <!--
+    El dominio no referencia NADA: ni otros proyectos, ni paquetes NuGet. Solo el BCL.
+    Es la capa mas interna de la arquitectura hexagonal y esta regla la fija un test
+    (DomainShouldHaveNoProjectReferences en LexPCImages.ArchitectureTests).
+  -->
 </Project>

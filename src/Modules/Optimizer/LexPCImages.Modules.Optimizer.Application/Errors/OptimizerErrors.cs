@@ -1,8 +1,15 @@
 using LexPCImages.Modules.Optimizer.Domain.Entities;
 using LexPCImages.Shared.Common.Errors;
 
-namespace LexPCImages.Modules.Optimizer.Domain.Errors;
+namespace LexPCImages.Modules.Optimizer.Application.Errors;
 
+/// <summary>
+/// Catálogo de errores que la aplicación devuelve al exterior. Vive en Application y no en
+/// Domain a propósito: un <c>code</c> como <c>optimizer.image_too_large</c> y su mensaje son
+/// parte del contrato de la API, no vocabulario del negocio. Las reglas de negocio de verdad
+/// (transiciones de <see cref="ProcessJob"/>, rango de <c>CropMarginPct</c>) viven en el dominio
+/// y se defienden con excepciones.
+/// </summary>
 public static class OptimizerErrors
 {
     public static readonly Error SlotNotFound = Error.NotFound(

@@ -2,7 +2,7 @@ using LexPCImages.Modules.Optimizer.Application.UseCases.EnqueueJob;
 using LexPCImages.Modules.Optimizer.Application.UseCases.GetJobDownload;
 using LexPCImages.Modules.Optimizer.Application.UseCases.GetJobStatus;
 using LexPCImages.Modules.Optimizer.Domain.Entities;
-using LexPCImages.Modules.Optimizer.Domain.Errors;
+using LexPCImages.Modules.Optimizer.Application.Errors;
 using LexPCImages.Modules.Optimizer.Domain.ValueObjects;
 using LexPCImages.Modules.Optimizer.Presentation.Requests;
 using LexPCImages.Modules.Optimizer.Presentation.Responses;

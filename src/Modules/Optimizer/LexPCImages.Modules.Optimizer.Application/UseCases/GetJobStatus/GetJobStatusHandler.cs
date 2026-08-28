@@ -1,5 +1,5 @@
 using LexPCImages.Modules.Optimizer.Application.Ports;
-using LexPCImages.Modules.Optimizer.Domain.Errors;
+using LexPCImages.Modules.Optimizer.Application.Errors;
 using LexPCImages.Modules.Optimizer.Domain.ValueObjects;
 using LexPCImages.Shared.Common;
 

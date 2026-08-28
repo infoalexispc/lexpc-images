@@ -9,6 +9,33 @@ namespace LexPCImages.ArchitectureTests;
 public sealed class LayerDependencyTests
 {
     [Fact]
+    public void Domain_should_reference_nothing_but_the_BCL()
+    {
+        // La capa mas interna no depende de nada del repositorio: ni de Shared, ni de paquetes.
+        // Antes referenciaba Shared solo para OptimizerErrors, que era en realidad el catalogo
+        // de respuestas de la API y por eso se movio a Application.
+        static List<string> NonBclReferences(System.Reflection.Assembly assembly) => assembly
+            .GetReferencedAssemblies()
+            .Select(reference => reference.Name)
+            .Where(name => name is not null && !IsBclAssembly(name))
+            .Select(name => name!)
+            .ToList();
+
+        // El detector se autocomprueba: Application si referencia Shared, asi que si esta
+        // comprobacion dejara de encontrarlo la regla de abajo pasaria siempre sin proteger nada.
+        NonBclReferences(ArchitectureLayers.Application).Should().Contain(
+            "LexPCImages.Shared",
+            "si Application dejara de referenciar Shared, este test habria dejado de detectar nada");
+
+        NonBclReferences(ArchitectureLayers.Domain).Should().BeEmpty(
+            "el dominio debe ser autonomo: nada de proyectos propios ni de paquetes de terceros");
+    }
+
+    private static bool IsBclAssembly(string name) =>
+        name.StartsWith("System", StringComparison.Ordinal)
+        || name is "netstandard" or "mscorlib";
+
+    [Fact]
     public void Domain_ShouldNotDependOnAnyOtherLayer()
     {
         var result = Types.InAssembly(typeof(SlotId).Assembly)

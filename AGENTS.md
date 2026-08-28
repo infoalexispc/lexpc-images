@@ -16,7 +16,7 @@ API en **.NET 10** con arquitectura **hexagonal + DDD** en monolito modular. Com
 ## Módulos y capas
 
 ```
-Domain                 →  Shared
+Domain                 →  (NADA: ni proyectos ni paquetes, solo el BCL)
 Application            →  Domain, Shared
 Module.Infrastructure  →  Application, Domain, Shared
 Shared.Web             →  Shared + FrameworkReference AspNetCore.App
@@ -27,6 +27,18 @@ API                    →  TODAS
 
 Las reglas anteriores están fijadas por tests de `NetArchTest`, incluida "solo las capas web pueden referenciar ASP.NET Core" y "el dominio no lee el reloj ambiental" (esta última inspecciona el IL).
 
+**El dominio no referencia absolutamente nada.** Referenciaba `Shared` por un único fichero,
+`OptimizerErrors`, que en realidad es el catálogo de respuestas de la API (`code` + mensaje para
+el consumidor HTTP) y no vocabulario de negocio; por eso vive ahora en `Application/Errors/`. Las
+reglas de negocio de verdad —transiciones de `ProcessJob`, rango de `CropMarginPct`— siguen en el
+dominio y se defienden con excepciones, sin necesitar `Result<T>`.
+
+**El host no declara controladores propios y no tiene carpeta `Controllers/`.** Cada módulo aporta
+los suyos desde su proyecto `*.Presentation`, y el composition root los registra con
+`AddOptimizerPresentation()`, que hace el `AddApplicationPart` del ensamblado del módulo. Si
+aparece un `src/LexPCImages.API/Controllers/` es scaffolding de `dotnet new webapi`, no forma parte
+del diseño.
+
 ```
 LexPCImages.slnx
 ├── src/
@@ -35,8 +47,8 @@ LexPCImages.slnx
 │   │   ├── LexPCImages.Shared/           # Result<T>, Error, ErrorType
 │   │   └── LexPCImages.Shared.Web/       # ErrorHttpMapper: única traducción Error → HTTP
 │   └── Modules/Optimizer/
-│       ├── Domain/                       # ProcessJob, SlotDefinition, RefinementOptions, OptimizerErrors
-│       ├── Application/                  # casos de uso, puertos, pipelines, progreso, validación
+│       ├── Domain/                       # ProcessJob, SlotDefinition, RefinementOptions (sin dependencias)
+│       ├── Application/                  # casos de uso, puertos, pipelines, progreso, validación, errores
 │       ├── Infrastructure/               # ONNX, ImageSharp, refinadores de máscara, cola, repositorio
 │       └── Presentation/                 # OptimizerController, OptimizerModule, DTOs
 └── tests/
@@ -55,6 +67,7 @@ LexPCImages.slnx
 | `Progress/` | `OptimizerProgress` (tabla de tramos), `StageProgress`, extensiones del notificador |
 | `Imaging/` | `MaskCompositor`: composición de la máscara sobre el RGBA |
 | `Validation/` | `ImageContentTypes`: media types admitidos + firma real de los bytes |
+| `Errors/` | `OptimizerErrors`: catálogo de `Error` con los `code` que publica la API |
 | `UseCases/` | `EnqueueJob`, `GetJobStatus`, `GetJobDownload`, `ProcessImage` |
 
 ### Estructura interna de Infrastructure
@@ -166,6 +179,8 @@ El modelo se copia al output en cada build vía `<None Include="..\..\models\**\
 5. **Toda mutación del agregado se confirma con `IJobRepository.UpdateAsync`**, aunque el repo en memoria comparta referencia.
 6. **Conversión RGBA ↔ ImageSharp** solo por `RgbaImageInterop`; morfología solo por `Morphology`.
 7. Los controladores **no validan reglas de negocio**: traducen y delegan.
+8. **Nada nuevo en `Domain` que necesite una referencia externa.** Si algo requiere `Result<T>`,
+   `Error` o un paquete, es que pertenece a `Application`.
 
 ## Comandos
 
@@ -181,10 +196,10 @@ dotnet run --project src/LexPCImages.API     # puerto 5232
 | Suite | Tests | Cubre |
 |---|---|---|
 | `UnitTests` | 151 | Dominio, casos de uso, pipelines, repositorio (con `FakeTimeProvider`), validación de firma, cola, ImageSharp, `Result<T>` |
-| `ArchitectureTests` | 17 | Capas, contratos, independencia web, reloj del dominio, mapeo de errores centralizado, no console |
+| `ArchitectureTests` | 18 | Capas, dominio sin dependencias, contratos, independencia web, reloj del dominio, mapeo de errores centralizado, no console |
 | `IntegrationTests` | 14 | `WebApplicationFactory` con doble de segmentación: enqueue → polling → download, ambos `SlotMode`, `problem+json` |
 
-**Total: 182/182 verdes.**
+**Total: 183/183 verdes.**
 
 ## Estado de las fases
 

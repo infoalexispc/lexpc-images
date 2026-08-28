@@ -3,7 +3,7 @@ using LexPCImages.Modules.Optimizer.Application.Abstractions;
 using LexPCImages.Modules.Optimizer.Application.Pipelines;
 using LexPCImages.Modules.Optimizer.Application.Progress;
 using LexPCImages.Modules.Optimizer.Domain.Entities;
-using LexPCImages.Modules.Optimizer.Domain.Errors;
+using LexPCImages.Modules.Optimizer.Application.Errors;
 using LexPCImages.Modules.Optimizer.Domain.ValueObjects;
 using LexPCImages.Shared.Common;
 using LexPCImages.Shared.Common.Errors;
