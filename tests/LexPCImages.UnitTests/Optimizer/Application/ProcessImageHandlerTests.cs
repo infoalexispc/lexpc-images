@@ -16,7 +16,7 @@ namespace LexPCImages.UnitTests.Optimizer.Application;
 /// </summary>
 public sealed class ProcessImageHandlerTests
 {
-    private static readonly SlotDefinition Slot = SlotDefinition.PcHome;
+    private static readonly SlotDefinition Slot = SlotDefinition.PcHomeSmall;
     private static readonly byte[] InputImage = [0xFF, 0xD8, 0xFF];
     private static readonly DecodedImage Decoded = new(400, 300, new byte[400 * 300 * 4]);
     private static readonly DecodedImage Processed = new(Slot.Width, Slot.Height, new byte[Slot.Width * Slot.Height * 4]);
@@ -49,7 +49,7 @@ public sealed class ProcessImageHandlerTests
     [Fact]
     public async Task HandleAsync_decodes_runs_the_pipeline_and_encodes()
     {
-        var pipeline = FakePipeline(SlotMode.BackgroundRemoval, Processed);
+        var pipeline = FakePipeline(SlotMode.FitTransparent, Processed);
         var job = NewJob();
 
         var result = await CreateSut(pipeline).HandleAsync(job, CancellationToken.None);
@@ -65,23 +65,22 @@ public sealed class ProcessImageHandlerTests
     [Fact]
     public async Task HandleAsync_selects_the_pipeline_that_matches_the_slot_mode()
     {
-        var backgroundRemoval = FakePipeline(SlotMode.BackgroundRemoval, Processed);
+        var fitTransparent = FakePipeline(SlotMode.FitTransparent, Processed);
         var resizeAndPad = FakePipeline(SlotMode.ResizeAndPad, Processed);
         var job = NewJob(SlotDefinition.PcMainSection);
 
-        await CreateSut(backgroundRemoval, resizeAndPad).HandleAsync(job, CancellationToken.None);
+        await CreateSut(fitTransparent, resizeAndPad).HandleAsync(job, CancellationToken.None);
 
         await resizeAndPad.Received(1).ExecuteAsync(Arg.Any<ImagePipelineContext>(), Arg.Any<CancellationToken>());
-        await backgroundRemoval.DidNotReceive()
+        await fitTransparent.DidNotReceive()
             .ExecuteAsync(Arg.Any<ImagePipelineContext>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
-    public async Task HandleAsync_passes_the_effective_refinement_to_the_pipeline()
+    public async Task HandleAsync_passes_the_job_and_slot_to_the_pipeline()
     {
-        var pipeline = FakePipeline(SlotMode.BackgroundRemoval, Processed);
-        var refinement = new RefinementOptions(suppressShadow: false, cropMarginPct: 0.3);
-        var job = ProcessJob.Create(Slot, InputImage, "image/jpeg", DateTimeOffset.UtcNow, refinement);
+        var pipeline = FakePipeline(SlotMode.FitTransparent, Processed);
+        var job = NewJob();
 
         await CreateSut(pipeline).HandleAsync(job, CancellationToken.None);
 
@@ -89,15 +88,14 @@ public sealed class ProcessImageHandlerTests
             Arg.Is<ImagePipelineContext>(context =>
                 context.JobId == job.Id
                 && context.Slot == Slot
-                && context.Source == Decoded
-                && context.Refinement == refinement),
+                && context.Source == Decoded),
             Arg.Any<CancellationToken>());
     }
 
     [Fact]
     public async Task HandleAsync_reports_decoding_and_encoding_around_the_pipeline()
     {
-        var pipeline = FakePipeline(SlotMode.BackgroundRemoval, Processed);
+        var pipeline = FakePipeline(SlotMode.FitTransparent, Processed);
         var job = NewJob();
 
         await CreateSut(pipeline).HandleAsync(job, CancellationToken.None);
@@ -121,7 +119,7 @@ public sealed class ProcessImageHandlerTests
     {
         var job = NewJob(SlotDefinition.PcMainSection);
 
-        var result = await CreateSut(FakePipeline(SlotMode.BackgroundRemoval, Processed))
+        var result = await CreateSut(FakePipeline(SlotMode.FitTransparent, Processed))
             .HandleAsync(job, CancellationToken.None);
 
         result.IsFailure.Should().BeTrue();
@@ -133,8 +131,8 @@ public sealed class ProcessImageHandlerTests
     public void Constructor_rejects_two_pipelines_claiming_the_same_slot_mode()
     {
         var act = () => CreateSut(
-            FakePipeline(SlotMode.BackgroundRemoval, Processed),
-            FakePipeline(SlotMode.BackgroundRemoval, Processed));
+            FakePipeline(SlotMode.FitTransparent, Processed),
+            FakePipeline(SlotMode.FitTransparent, Processed));
 
         act.Should().Throw<InvalidOperationException>().WithMessage("*More than one pipeline*");
     }
@@ -144,7 +142,7 @@ public sealed class ProcessImageHandlerTests
     {
         _decoder.DecodeAsync(Arg.Any<byte[]>(), Arg.Any<CancellationToken>())
             .Returns(new DecodedImage(50, 50, new byte[50 * 50 * 4]));
-        var pipeline = FakePipeline(SlotMode.BackgroundRemoval, Processed);
+        var pipeline = FakePipeline(SlotMode.FitTransparent, Processed);
 
         var result = await CreateSut(pipeline).HandleAsync(NewJob(), CancellationToken.None);
 
@@ -158,7 +156,7 @@ public sealed class ProcessImageHandlerTests
     {
         _decoder.DecodeAsync(Arg.Any<byte[]>(), Arg.Any<CancellationToken>())
             .Returns(new DecodedImage(9000, 9000, []));
-        var pipeline = FakePipeline(SlotMode.BackgroundRemoval, Processed);
+        var pipeline = FakePipeline(SlotMode.FitTransparent, Processed);
 
         var result = await CreateSut(pipeline).HandleAsync(NewJob(), CancellationToken.None);
 

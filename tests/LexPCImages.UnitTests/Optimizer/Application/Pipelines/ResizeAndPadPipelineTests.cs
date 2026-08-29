@@ -34,7 +34,7 @@ public sealed class ResizeAndPadPipelineTests
     [Fact]
     public async Task ExecuteAsync_pads_to_the_slot_dimensions()
     {
-        var context = new ImagePipelineContext(_jobId, Source, Slot, RefinementOptions.Defaults);
+        var context = new ImagePipelineContext(_jobId, Source, Slot);
 
         var result = await CreateSut().ExecuteAsync(context, CancellationToken.None);
 
@@ -45,17 +45,13 @@ public sealed class ResizeAndPadPipelineTests
     [Fact]
     public async Task ExecuteAsync_reports_a_single_resizing_stage()
     {
-        var context = new ImagePipelineContext(_jobId, Source, Slot, RefinementOptions.Defaults);
+        var context = new ImagePipelineContext(_jobId, Source, Slot);
 
         await CreateSut().ExecuteAsync(context, CancellationToken.None);
 
         await _notifier.Received(1).OnStageStartedAsync(
-            _jobId, ProcessingStage.Resizing, OptimizerProgress.ResizingAndPadding.Start, Arg.Any<CancellationToken>());
+            _jobId, ProcessingStage.Resizing, OptimizerProgress.Resizing.Start, Arg.Any<CancellationToken>());
         await _notifier.Received(1).OnStageCompletedAsync(
-            _jobId, ProcessingStage.Resizing, OptimizerProgress.ResizingAndPadding.End, Arg.Any<CancellationToken>());
-        await _notifier.DidNotReceive().OnStageStartedAsync(
-            _jobId, ProcessingStage.Inferring, Arg.Any<int>(), Arg.Any<CancellationToken>());
-        await _notifier.DidNotReceive().OnStageStartedAsync(
-            _jobId, ProcessingStage.Cropping, Arg.Any<int>(), Arg.Any<CancellationToken>());
+            _jobId, ProcessingStage.Resizing, OptimizerProgress.Resizing.End, Arg.Any<CancellationToken>());
     }
 }

@@ -6,7 +6,7 @@ namespace LexPCImages.UnitTests.Optimizer.Domain;
 
 public sealed class ProcessJobTests
 {
-    private static readonly SlotDefinition Slot = SlotDefinition.PcHome;
+    private static readonly SlotDefinition Slot = SlotDefinition.PcHomeSmall;
     private static readonly byte[] AnyImage = [0x01, 0x02, 0x03];
     private static readonly byte[] AnyOutput = [0xFF, 0xFE];
     private static readonly DateTimeOffset CreatedAt = new(2026, 8, 26, 10, 0, 0, TimeSpan.Zero);
@@ -86,9 +86,9 @@ public sealed class ProcessJobTests
     {
         var job = ProcessingJob();
 
-        job.UpdateProgress(ProcessingStage.Inferring, 50);
+        job.UpdateProgress(ProcessingStage.Resizing, 50);
 
-        job.CurrentStage.Should().Be(ProcessingStage.Inferring);
+        job.CurrentStage.Should().Be(ProcessingStage.Resizing);
         job.Progress.Should().Be(50);
     }
 
@@ -187,20 +187,4 @@ public sealed class ProcessJobTests
         act.Should().Throw<InvalidOperationException>();
     }
 
-    [Fact]
-    public void EffectiveRefinement_prefers_the_job_override_over_the_slot_defaults()
-    {
-        var jobOverride = new RefinementOptions(suppressShadow: false, cropMarginPct: 0.2);
-        var job = ProcessJob.Create(Slot, AnyImage, "image/png", CreatedAt, jobOverride);
-
-        job.EffectiveRefinement.Should().Be(jobOverride);
-    }
-
-    [Fact]
-    public void EffectiveRefinement_falls_back_to_the_slot_when_the_job_has_no_override()
-    {
-        var job = NewJob();
-
-        job.EffectiveRefinement.Should().Be(Slot.EffectiveRefinement);
-    }
 }

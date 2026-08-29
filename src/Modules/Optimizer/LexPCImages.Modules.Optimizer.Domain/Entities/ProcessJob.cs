@@ -17,8 +17,6 @@ public sealed class ProcessJob
     public const int MinProgress = 0;
     public const int MaxProgress = 100;
 
-    private readonly RefinementOptions? _refinement;
-
     public Guid Id { get; }
     public SlotDefinition Slot { get; }
     public byte[] InputImage { get; }
@@ -36,15 +34,12 @@ public sealed class ProcessJob
     /// <summary>Un trabajo es terminal cuando ya no puede volver a cambiar de estado.</summary>
     public bool IsTerminal => Status is JobStatus.Done or JobStatus.Error;
 
-    public RefinementOptions EffectiveRefinement => _refinement ?? Slot.EffectiveRefinement;
-
     private ProcessJob(
         Guid id,
         SlotDefinition slot,
         byte[] inputImage,
         string inputContentType,
-        DateTimeOffset createdAt,
-        RefinementOptions? refinement)
+        DateTimeOffset createdAt)
     {
         Id = id;
         Slot = slot;
@@ -53,15 +48,13 @@ public sealed class ProcessJob
         Status = JobStatus.Queued;
         Progress = MinProgress;
         CreatedAt = createdAt;
-        _refinement = refinement;
     }
 
     public static ProcessJob Create(
         SlotDefinition slot,
         byte[] inputImage,
         string inputContentType,
-        DateTimeOffset now,
-        RefinementOptions? refinement = null)
+        DateTimeOffset now)
     {
         ArgumentNullException.ThrowIfNull(slot);
         ArgumentNullException.ThrowIfNull(inputImage);
@@ -78,7 +71,7 @@ public sealed class ProcessJob
             throw new ArgumentException("Input content type cannot be empty.", nameof(inputContentType));
         }
 
-        return new(Guid.NewGuid(), slot, inputImage, inputContentType, now, refinement);
+        return new(Guid.NewGuid(), slot, inputImage, inputContentType, now);
     }
 
     public void MarkProcessing(ProcessingStage stage, int percent, DateTimeOffset now)

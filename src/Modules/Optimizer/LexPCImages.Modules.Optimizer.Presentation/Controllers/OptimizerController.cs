@@ -62,8 +62,7 @@ public sealed class OptimizerController : ControllerBase
         var command = new EnqueueJobCommand(
             slotId,
             await ReadAllBytesAsync(file, cancellationToken),
-            file.ContentType,
-            form.ToRefinementOverrides());
+            file.ContentType);
 
         var result = await _enqueue.HandleAsync(command, cancellationToken);
         if (result.IsFailure)
@@ -71,8 +70,9 @@ public sealed class OptimizerController : ControllerBase
             return Problem(result.ErrorOrThrow());
         }
 
-        var response = EnqueueJobResponse.From(result.ValueOrThrow());
-        return AcceptedAtAction(nameof(GetStatus), new { id = response.JobId }, response);
+        // Sin cabecera Location: un id puede producir varias salidas y apuntar a una de ellas
+        // seria arbitrario. Los ids de todos los trabajos viajan en el cuerpo.
+        return Accepted(EnqueueJobResponse.From(result.ValueOrThrow()));
     }
 
     [HttpGet("{id:guid}", Name = nameof(GetStatus))]

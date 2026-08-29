@@ -1,10 +1,8 @@
 using LexPCImages.Modules.Optimizer.Application.Abstractions;
 using LexPCImages.Modules.Optimizer.Application.Ports;
-using LexPCImages.Modules.Optimizer.Infrastructure.Ai;
 using LexPCImages.Modules.Optimizer.Infrastructure.BackgroundProcessing;
 using LexPCImages.Modules.Optimizer.Infrastructure.Configuration;
 using LexPCImages.Modules.Optimizer.Infrastructure.Imaging;
-using LexPCImages.Modules.Optimizer.Infrastructure.MaskRefinement;
 using LexPCImages.Modules.Optimizer.Infrastructure.Persistence;
 using LexPCImages.Modules.Optimizer.Infrastructure.Queue;
 using LexPCImages.Modules.Optimizer.Infrastructure.Registries;
@@ -47,16 +45,6 @@ public static class OptimizerInfrastructureExtensions
         services.AddSingleton<IImageEncoder, WebpImageEncoder>();
         services.AddSingleton<IImageResizer, ImageSharpResizer>();
         services.AddSingleton<IImagePadder, ImageSharpPadder>();
-
-        services.AddSingleton<IShadowSuppressor, ShadowSuppressor>();
-        services.AddSingleton<IDeskMaskRefiner, DeskMaskRefiner>();
-        services.AddSingleton<ILegProtector, LegProtector>();
-        services.AddSingleton<ITightCropper, TightCropper>();
-
-        // La sesión de ONNX Runtime es cara: una sola instancia para todo el proceso.
-        services.AddSingleton<IBackgroundRemovalService>(provider =>
-            new OnnxBackgroundRemovalService(
-                provider.GetRequiredService<IOptions<OptimizerOptions>>().Value.ResolveModelPath()));
     }
 
     private static void AddOptimizerProcessing(this IServiceCollection services)

@@ -12,7 +12,7 @@ internal static class ArchitectureLayers
     public static Assembly Domain { get; } = typeof(LexPCImages.Modules.Optimizer.Domain.ValueObjects.SlotId).Assembly;
 
     public static Assembly Application { get; } =
-        typeof(LexPCImages.Modules.Optimizer.Application.Abstractions.IBackgroundRemovalService).Assembly;
+        typeof(LexPCImages.Modules.Optimizer.Application.Abstractions.IImageResizer).Assembly;
 
     public static Assembly Infrastructure { get; } =
         typeof(LexPCImages.Modules.Optimizer.Infrastructure.AssemblyMarker).Assembly;

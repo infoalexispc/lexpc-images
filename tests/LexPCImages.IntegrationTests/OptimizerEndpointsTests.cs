@@ -27,19 +27,40 @@ public sealed class OptimizerEndpointsTests : IClassFixture<OptimizerWebApplicat
     }
 
     [Fact]
-    public async Task Enqueue_returns_202_with_jobId_for_valid_image()
+    public async Task Enqueue_returns_202_with_a_single_job_for_a_plain_slot()
+    {
+        var client = _factory.CreateClient();
+        var slot = SlotDefinition.PcMainSection;
+
+        var response = await client.PostAsync(
+            "/api/optimizer/jobs",
+            BuildMultipart(slot.Id.Value, TestImages.Png(400, 300), "image/png", "test.png"));
+
+        response.StatusCode.Should().Be(HttpStatusCode.Accepted);
+        var json = await response.Content.ReadFromJsonAsync<EnqueueJobResponseDto>();
+        json.Should().NotBeNull();
+        var job = json!.Jobs.Should().ContainSingle().Subject;
+        job.JobId.Should().NotBeEmpty();
+        job.SlotId.Should().Be(slot.Id.Value);
+        job.Width.Should().Be(slot.Width);
+        job.Height.Should().Be(slot.Height);
+        job.Status.Should().Be("Queued");
+    }
+
+    [Fact]
+    public async Task Enqueue_returns_one_job_per_output_when_the_slot_is_a_bundle()
     {
         var client = _factory.CreateClient();
 
         var response = await client.PostAsync(
             "/api/optimizer/jobs",
-            BuildMultipart(SlotDefinition.PcHome.Id.Value, TestImages.Png(400, 300), "image/png", "test.png"));
+            BuildMultipart(SlotBundle.PcHome.Id.Value, TestImages.Png(800, 600), "image/png", "pc.png"));
 
         response.StatusCode.Should().Be(HttpStatusCode.Accepted);
         var json = await response.Content.ReadFromJsonAsync<EnqueueJobResponseDto>();
-        json.Should().NotBeNull();
-        json!.JobId.Should().NotBeEmpty();
-        json.Status.Should().Be("Queued");
+        json!.Jobs.Should().HaveCount(2);
+        json.Jobs.Select(job => (job.Width, job.Height)).Should().Equal((320, 315), (992, 715));
+        json.Jobs.Select(job => job.JobId).Distinct().Should().HaveCount(2);
     }
 
     [Fact]
@@ -61,7 +82,7 @@ public sealed class OptimizerEndpointsTests : IClassFixture<OptimizerWebApplicat
 
         var response = await client.PostAsync(
             "/api/optimizer/jobs",
-            BuildMultipart(SlotDefinition.PcHome.Id.Value, [0x01, 0x02], "image/gif", "test.gif"));
+            BuildMultipart(SlotDefinition.PcMainSection.Id.Value, [0x01, 0x02], "image/gif", "test.gif"));
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
     }
@@ -73,26 +94,11 @@ public sealed class OptimizerEndpointsTests : IClassFixture<OptimizerWebApplicat
 
         var response = await client.PostAsync(
             "/api/optimizer/jobs",
-            BuildMultipart(SlotDefinition.PcHome.Id.Value, [0x4D, 0x5A, 0x90], "image/png", "fake.png"));
+            BuildMultipart(SlotDefinition.PcMainSection.Id.Value, [0x4D, 0x5A, 0x90], "image/png", "fake.png"));
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         var problem = await response.Content.ReadFromJsonAsync<ProblemDetailsDto>();
         problem!.Code.Should().Be("optimizer.image_content_mismatch");
-    }
-
-    [Fact]
-    public async Task Enqueue_returns_400_for_an_out_of_range_crop_margin()
-    {
-        var client = _factory.CreateClient();
-        var form = BuildMultipart(
-            SlotDefinition.PcHome.Id.Value, TestImages.Png(400, 300), "image/png", "test.png");
-        form.Add(new StringContent("0.9"), "cropMarginPct");
-
-        var response = await client.PostAsync("/api/optimizer/jobs", form);
-
-        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
-        var problem = await response.Content.ReadFromJsonAsync<ProblemDetailsDto>();
-        problem!.Code.Should().Be("optimizer.crop_margin_out_of_range");
     }
 
     [Fact]
@@ -116,15 +122,16 @@ public sealed class OptimizerEndpointsTests : IClassFixture<OptimizerWebApplicat
 
         var enqueueResponse = await client.PostAsync(
             "/api/optimizer/jobs",
-            BuildMultipart(SlotDefinition.PcHome.Id.Value, TestImages.Png(400, 300), "image/png", "test.png"));
+            BuildMultipart(SlotDefinition.PcMainSection.Id.Value, TestImages.Png(400, 300), "image/png", "test.png"));
         enqueueResponse.StatusCode.Should().Be(HttpStatusCode.Accepted);
         var enqueued = await enqueueResponse.Content.ReadFromJsonAsync<EnqueueJobResponseDto>();
+        var jobId = enqueued!.Jobs[0].JobId;
 
-        var statusResponse = await client.GetAsync($"/api/optimizer/jobs/{enqueued!.JobId}");
+        var statusResponse = await client.GetAsync($"/api/optimizer/jobs/{jobId}");
         statusResponse.StatusCode.Should().Be(HttpStatusCode.OK);
         var status = await statusResponse.Content.ReadFromJsonAsync<JobStatusResponseDto>();
         status.Should().NotBeNull();
-        status!.JobId.Should().Be(enqueued.JobId);
+        status!.JobId.Should().Be(jobId);
         status.Status.Should().BeOneOf("Queued", "Processing", "Done");
     }
 
@@ -138,7 +145,8 @@ public sealed class OptimizerEndpointsTests : IClassFixture<OptimizerWebApplicat
         response.StatusCode.Should().Be(HttpStatusCode.OK);
     }
 
-    private sealed record EnqueueJobResponseDto(Guid JobId, string Status);
+    private sealed record EnqueueJobResponseDto(IReadOnlyList<EnqueuedJobDto> Jobs);
+    private sealed record EnqueuedJobDto(Guid JobId, string SlotId, int Width, int Height, string Status);
     private sealed record JobStatusResponseDto(Guid JobId, string Status, string? Stage, int Progress);
     private sealed record ProblemDetailsDto(string? Title, int? Status, string? Detail, string? Code);
 }

@@ -10,8 +10,7 @@ namespace LexPCImages.Modules.Optimizer.Application.Pipelines;
 public sealed record ImagePipelineContext(
     Guid JobId,
     DecodedImage Source,
-    SlotDefinition Slot,
-    RefinementOptions Refinement);
+    SlotDefinition Slot);
 
 /// <summary>
 /// Estrategia de transformación asociada a un <see cref="SlotMode"/>. Añadir un modo nuevo es

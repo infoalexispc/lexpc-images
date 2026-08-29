@@ -19,9 +19,9 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<ProcessImageHandler>();
 
         // Una estrategia por SlotMode: añadir un modo nuevo es añadir una línea aquí.
-        services.AddScoped<IImageProcessingPipeline, BackgroundRemovalPipeline>();
         services.AddScoped<IImageProcessingPipeline, ResizeAndPadPipeline>();
         services.AddScoped<IImageProcessingPipeline, CoverOrPadPipeline>();
+        services.AddScoped<IImageProcessingPipeline, FitTransparentPipeline>();
 
         return services;
     }

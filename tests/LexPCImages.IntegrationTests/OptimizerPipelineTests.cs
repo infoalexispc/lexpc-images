@@ -17,47 +17,58 @@ public sealed class OptimizerPipelineTests : IClassFixture<OptimizerWebApplicati
     }
 
     [Fact]
-    public async Task Full_pipeline_upload_processes_and_returns_webp()
+    public async Task Home_bundle_turns_one_upload_into_two_downloadable_sizes()
     {
         var client = _factory.CreateClient();
 
         var enqueueResponse = await client.PostAsync(
             "/api/optimizer/jobs",
-            BuildMultipart(SlotDefinition.PcHome.Id.Value, TestImages.Png(400, 300), "image/png", "pc.png"));
+            BuildMultipart(SlotBundle.PcHome.Id.Value, TestImages.Png(800, 600), "image/png", "pc.png"));
         enqueueResponse.StatusCode.Should().Be(HttpStatusCode.Accepted);
         var enqueued = await enqueueResponse.Content.ReadFromJsonAsync<EnqueueJobResponseDto>();
-        enqueued.Should().NotBeNull();
+        enqueued!.Jobs.Should().HaveCount(2);
 
-        var jobId = enqueued!.JobId.ToString();
-        var final = await PollUntilTerminalAsync(client, jobId, TimeSpan.FromSeconds(15));
+        var sizes = new List<(int Width, int Height)>();
+        foreach (var job in enqueued.Jobs)
+        {
+            var final = await PollUntilTerminalAsync(client, job.JobId.ToString(), TimeSpan.FromSeconds(20));
+            final.Status.Should().Be("Done");
 
-        final.Status.Should().Be("Done");
-        final.Progress.Should().Be(100);
+            var download = await client.GetAsync($"/api/optimizer/jobs/{job.JobId}/download");
+            download.StatusCode.Should().Be(HttpStatusCode.OK);
+            download.Content.Headers.ContentType?.MediaType.Should().Be("image/webp");
+            download.Content.Headers.ContentDisposition!.FileName.Should().Contain(job.SlotId);
 
-        var download = await client.GetAsync($"/api/optimizer/jobs/{jobId}/download");
-        download.StatusCode.Should().Be(HttpStatusCode.OK);
-        download.Content.Headers.ContentType?.MediaType.Should().Be("image/webp");
-        var downloaded = await download.Content.ReadAsByteArrayAsync();
-        downloaded.Length.Should().BeGreaterThan(0);
-        downloaded[0..4].Should().Equal((byte)'R', (byte)'I', (byte)'F', (byte)'F');
+            using var image = SixLabors.ImageSharp.Image.Load(await download.Content.ReadAsByteArrayAsync());
+            sizes.Add((image.Width, image.Height));
+        }
+
+        sizes.Should().Equal((320, 315), (992, 715));
     }
 
     [Fact]
-    public async Task Download_file_name_is_derived_from_the_slot()
+    public async Task Fit_transparent_slot_leaves_the_leftover_bands_fully_transparent()
     {
         var client = _factory.CreateClient();
+        // 800x600 es mas apaisada que 320x315: al encajarla proporcional sobran bandas arriba y abajo.
+        var slot = SlotDefinition.PcHomeSmall;
 
         var enqueueResponse = await client.PostAsync(
             "/api/optimizer/jobs",
-            BuildMultipart(SlotDefinition.PcHome.Id.Value, TestImages.Png(400, 300), "image/png", "pc.png"));
+            BuildMultipart(slot.Id.Value, TestImages.Png(800, 600), "image/png", "pc.png"));
         var enqueued = await enqueueResponse.Content.ReadFromJsonAsync<EnqueueJobResponseDto>();
-        var jobId = enqueued!.JobId.ToString();
-        await PollUntilTerminalAsync(client, jobId, TimeSpan.FromSeconds(15));
+        var jobId = enqueued!.Jobs[0].JobId;
+
+        var final = await PollUntilTerminalAsync(client, jobId.ToString(), TimeSpan.FromSeconds(20));
+        final.Status.Should().Be("Done");
 
         var download = await client.GetAsync($"/api/optimizer/jobs/{jobId}/download");
-
-        download.Content.Headers.ContentDisposition!.FileName
-            .Should().Contain(SlotDefinition.PcHome.Id.Value);
+        using var image = SixLabors.ImageSharp.Image.Load<Rgba32>(await download.Content.ReadAsByteArrayAsync());
+        image.Width.Should().Be(320);
+        image.Height.Should().Be(315);
+        image[160, 1].A.Should().Be(0, "la banda superior no lleva color de relleno, solo alfa 0");
+        image[160, image.Height - 2].A.Should().Be(0, "la banda inferior tampoco");
+        image[160, image.Height / 2].A.Should().Be(255, "la imagen en si sigue siendo opaca");
     }
 
     [Fact]
@@ -72,10 +83,11 @@ public sealed class OptimizerPipelineTests : IClassFixture<OptimizerWebApplicati
         enqueueResponse.StatusCode.Should().Be(HttpStatusCode.Accepted);
         var enqueued = await enqueueResponse.Content.ReadFromJsonAsync<EnqueueJobResponseDto>();
 
-        var final = await PollUntilTerminalAsync(client, enqueued!.JobId.ToString(), TimeSpan.FromSeconds(20));
+        var jobId = enqueued!.Jobs[0].JobId;
+        var final = await PollUntilTerminalAsync(client, jobId.ToString(), TimeSpan.FromSeconds(20));
         final.Status.Should().Be("Done");
 
-        var download = await client.GetAsync($"/api/optimizer/jobs/{enqueued.JobId}/download");
+        var download = await client.GetAsync($"/api/optimizer/jobs/{jobId}/download");
         download.StatusCode.Should().Be(HttpStatusCode.OK);
 
         using var image = SixLabors.ImageSharp.Image.Load(await download.Content.ReadAsByteArrayAsync());
@@ -95,10 +107,11 @@ public sealed class OptimizerPipelineTests : IClassFixture<OptimizerWebApplicati
         enqueueResponse.StatusCode.Should().Be(HttpStatusCode.Accepted);
         var enqueued = await enqueueResponse.Content.ReadFromJsonAsync<EnqueueJobResponseDto>();
 
-        var final = await PollUntilTerminalAsync(client, enqueued!.JobId.ToString(), TimeSpan.FromSeconds(20));
+        var jobId = enqueued!.Jobs[0].JobId;
+        var final = await PollUntilTerminalAsync(client, jobId.ToString(), TimeSpan.FromSeconds(20));
         final.Status.Should().Be("Done");
 
-        var download = await client.GetAsync($"/api/optimizer/jobs/{enqueued.JobId}/download");
+        var download = await client.GetAsync($"/api/optimizer/jobs/{jobId}/download");
         download.StatusCode.Should().Be(HttpStatusCode.OK);
 
         using var image = SixLabors.ImageSharp.Image.Load<Rgba32>(await download.Content.ReadAsByteArrayAsync());
@@ -122,10 +135,11 @@ public sealed class OptimizerPipelineTests : IClassFixture<OptimizerWebApplicati
         enqueueResponse.StatusCode.Should().Be(HttpStatusCode.Accepted);
         var enqueued = await enqueueResponse.Content.ReadFromJsonAsync<EnqueueJobResponseDto>();
 
-        var final = await PollUntilTerminalAsync(client, enqueued!.JobId.ToString(), TimeSpan.FromSeconds(20));
+        var jobId = enqueued!.Jobs[0].JobId;
+        var final = await PollUntilTerminalAsync(client, jobId.ToString(), TimeSpan.FromSeconds(20));
         final.Status.Should().Be("Done");
 
-        var download = await client.GetAsync($"/api/optimizer/jobs/{enqueued.JobId}/download");
+        var download = await client.GetAsync($"/api/optimizer/jobs/{jobId}/download");
         download.StatusCode.Should().Be(HttpStatusCode.OK);
 
         using var image = SixLabors.ImageSharp.Image.Load<Rgba32>(await download.Content.ReadAsByteArrayAsync());
@@ -151,11 +165,12 @@ public sealed class OptimizerPipelineTests : IClassFixture<OptimizerWebApplicati
 
         var enqueueResponse = await client.PostAsync(
             "/api/optimizer/jobs",
-            BuildMultipart(SlotDefinition.PcHome.Id.Value, corruptPng, "image/png", "pc.png"));
+            BuildMultipart(SlotDefinition.PcHomeSmall.Id.Value, corruptPng, "image/png", "pc.png"));
         enqueueResponse.StatusCode.Should().Be(HttpStatusCode.Accepted);
         var enqueued = await enqueueResponse.Content.ReadFromJsonAsync<EnqueueJobResponseDto>();
 
-        var final = await PollUntilTerminalAsync(client, enqueued!.JobId.ToString(), TimeSpan.FromSeconds(10));
+        var jobId = enqueued!.Jobs[0].JobId;
+        var final = await PollUntilTerminalAsync(client, jobId.ToString(), TimeSpan.FromSeconds(10));
 
         final.Status.Should().Be("Error");
         final.ErrorMessage.Should().Contain("Check the server logs");
@@ -179,10 +194,10 @@ public sealed class OptimizerPipelineTests : IClassFixture<OptimizerWebApplicati
         // Imagen grande: garantiza que el trabajo sigue en curso cuando se pide la descarga.
         var enqueueResponse = await client.PostAsync(
             "/api/optimizer/jobs",
-            BuildMultipart(SlotDefinition.PcHome.Id.Value, TestImages.Png(3000, 3000), "image/png", "pc.png"));
+            BuildMultipart(SlotDefinition.PcHomeSmall.Id.Value, TestImages.Png(3000, 3000), "image/png", "pc.png"));
         var enqueued = await enqueueResponse.Content.ReadFromJsonAsync<EnqueueJobResponseDto>();
 
-        var download = await client.GetAsync($"/api/optimizer/jobs/{enqueued!.JobId}/download");
+        var download = await client.GetAsync($"/api/optimizer/jobs/{enqueued!.Jobs[0].JobId}/download");
 
         download.StatusCode.Should().Be(HttpStatusCode.Conflict);
     }
@@ -232,7 +247,8 @@ public sealed class OptimizerPipelineTests : IClassFixture<OptimizerWebApplicati
             $"Job {jobId} did not reach terminal status in {timeout}. Last: {last?.Status} (progress={last?.Progress})");
     }
 
-    private sealed record EnqueueJobResponseDto(Guid JobId, string Status);
+    private sealed record EnqueueJobResponseDto(IReadOnlyList<EnqueuedJobDto> Jobs);
+    private sealed record EnqueuedJobDto(Guid JobId, string SlotId, int Width, int Height, string Status);
     private sealed record JobStatusResponseDto(
         Guid JobId, string Status, string? Stage, int Progress, string? ErrorMessage = null);
 }

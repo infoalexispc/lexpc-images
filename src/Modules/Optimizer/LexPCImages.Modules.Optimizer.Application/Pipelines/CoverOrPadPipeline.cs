@@ -34,7 +34,7 @@ public sealed class CoverOrPadPipeline : IImageProcessingPipeline
         var slot = context.Slot;
         var source = context.Source;
 
-        await _notifier.BeginAsync(context.JobId, OptimizerProgress.CoverFitting, cancellationToken);
+        await _notifier.BeginAsync(context.JobId, OptimizerProgress.Resizing, cancellationToken);
 
         var shouldCrop = slot.EffectiveCoverFit.ShouldCrop(
             source.Width, source.Height, slot.Width, slot.Height);
@@ -43,7 +43,7 @@ public sealed class CoverOrPadPipeline : IImageProcessingPipeline
             ? await _resizer.ResizeAsync(source, slot.Width, slot.Height, ResizeMode.Cover, cancellationToken)
             : _padder.Pad(source, slot.Width, slot.Height).Image;
 
-        await _notifier.CompleteAsync(context.JobId, OptimizerProgress.CoverFitting, cancellationToken);
+        await _notifier.CompleteAsync(context.JobId, OptimizerProgress.Resizing, cancellationToken);
 
         return result;
     }

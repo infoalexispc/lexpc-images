@@ -21,7 +21,4 @@
     <ProjectReference Include="..\Modules\Optimizer\LexPCImages.Modules.Optimizer.Presentation\LexPCImages.Modules.Optimizer.Presentation.csproj" />
   </ItemGroup>
 
-  <ItemGroup>
-    <None Include="..\..\models\**\*" Link="models\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
-  </ItemGroup>
 </Project>

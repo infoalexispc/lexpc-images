@@ -12,7 +12,7 @@ public sealed class GetJobStatusHandlerTests
 {
     private readonly IJobRepository _jobs = Substitute.For<IJobRepository>();
     private readonly Guid _jobId = Guid.NewGuid();
-    private readonly SlotDefinition _slot = SlotDefinition.PcHome;
+    private readonly SlotDefinition _slot = SlotDefinition.PcHomeSmall;
 
     private GetJobStatusHandler CreateSut() => new(_jobs);
 
@@ -34,7 +34,7 @@ public sealed class GetJobStatusHandlerTests
     {
         var now = DateTimeOffset.UtcNow;
         var job = ProcessJob.Create(_slot, new byte[] { 0x01 }, "image/png", now);
-        job.MarkProcessing(ProcessingStage.Inferring, 50, now);
+        job.MarkProcessing(ProcessingStage.Resizing, 50, now);
 
         _jobs.GetAsync(job.Id, Arg.Any<CancellationToken>()).Returns(job);
         var sut = CreateSut();
@@ -43,7 +43,7 @@ public sealed class GetJobStatusHandlerTests
 
         result.IsSuccess.Should().BeTrue();
         result.Value!.Status.Should().Be(JobStatus.Processing);
-        result.Value.Stage.Should().Be(ProcessingStage.Inferring);
+        result.Value.Stage.Should().Be(ProcessingStage.Resizing);
         result.Value.Progress.Should().Be(50);
         result.Value.JobId.Should().Be(job.Id);
     }

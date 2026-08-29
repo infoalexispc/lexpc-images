@@ -25,7 +25,7 @@ public sealed class InMemoryJobRepositoryTests
         Options.Create(_options), _time, NullLogger<InMemoryJobRepository>.Instance);
 
     private ProcessJob NewJob() =>
-        ProcessJob.Create(SlotDefinition.PcHome, AnyImage, "image/png", _time.GetUtcNow());
+        ProcessJob.Create(SlotDefinition.PcHomeSmall, AnyImage, "image/png", _time.GetUtcNow());
 
     [Fact]
     public async Task GetAsync_returns_null_for_an_unknown_job()
@@ -106,7 +106,7 @@ public sealed class InMemoryJobRepositoryTests
         var sut = CreateSut();
         var running = NewJob();
         await sut.AddAsync(running, CancellationToken.None);
-        running.MarkProcessing(ProcessingStage.Inferring, 20, _time.GetUtcNow());
+        running.MarkProcessing(ProcessingStage.Resizing, 20, _time.GetUtcNow());
         await sut.UpdateAsync(running, CancellationToken.None);
 
         _time.Advance(TimeSpan.FromHours(2));

@@ -11,13 +11,6 @@ public sealed class OptimizerOptions
 {
     public const string SectionName = "Optimizer";
 
-    /// <summary>
-    /// Ruta al modelo ONNX de segmentación. Si es relativa, se resuelve contra el directorio
-    /// de la aplicación (<see cref="AppContext.BaseDirectory"/>).
-    /// </summary>
-    [Required(AllowEmptyStrings = false)]
-    public string ModelPath { get; set; } = Path.Combine("models", "rmbg-1.4-fp16.onnx");
-
     /// <summary>Trabajos que caben en la cola de procesado antes de rechazar nuevas peticiones.</summary>
     [Range(1, 10_000)]
     public int QueueCapacity { get; set; } = 100;
@@ -33,8 +26,4 @@ public sealed class OptimizerOptions
     [Range(1, 100_000)]
     public int MaxTrackedJobs { get; set; } = 500;
 
-    /// <summary>Ruta absoluta del modelo, resuelta contra el directorio de la aplicación si hace falta.</summary>
-    public string ResolveModelPath() => Path.IsPathRooted(ModelPath)
-        ? ModelPath
-        : Path.Combine(AppContext.BaseDirectory, ModelPath);
 }

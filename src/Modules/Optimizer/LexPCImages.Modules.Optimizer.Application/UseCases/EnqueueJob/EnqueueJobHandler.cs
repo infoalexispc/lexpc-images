@@ -9,23 +9,21 @@ using Microsoft.Extensions.Logging;
 
 namespace LexPCImages.Modules.Optimizer.Application.UseCases.EnqueueJob;
 
-public sealed record RefinementOverrides(
-    bool? SuppressShadow = null,
-    bool? RemoveDesk = null,
-    bool? ProtectLegs = null,
-    double? CropMarginPct = null);
-
 public sealed record EnqueueJobCommand(
     SlotId SlotId,
     byte[] ImageBytes,
-    string ContentType,
-    RefinementOverrides? Refinement = null);
+    string ContentType);
 
-public sealed record EnqueueJobResult(Guid JobId, JobStatus Status);
+/// <summary>Un trabajo encolado, con el tamaño que va a producir para que el cliente pueda etiquetarlo.</summary>
+public sealed record EnqueuedJob(Guid JobId, SlotId SlotId, int Width, int Height, JobStatus Status);
+
+public sealed record EnqueueJobResult(IReadOnlyList<EnqueuedJob> Jobs);
 
 /// <summary>
-/// Valida la petición, crea el trabajo y lo encola. Es el único punto donde se valida la entrada:
-/// la capa web se limita a traducir el <see cref="Error"/> resultante a HTTP.
+/// Valida la petición, crea los trabajos y los encola. Es el único punto donde se valida la
+/// entrada: la capa web se limita a traducir el <see cref="Error"/> resultante a HTTP.
+/// Un id puede resolver a varias salidas (paquete), y entonces la misma imagen genera un trabajo
+/// por salida: el invariante "un trabajo produce una imagen" se mantiene intacto.
 /// </summary>
 public sealed class EnqueueJobHandler
 {
@@ -55,46 +53,59 @@ public sealed class EnqueueJobHandler
     {
         ArgumentNullException.ThrowIfNull(command);
 
-        var slot = _slots.FindById(command.SlotId);
-        if (slot is null)
+        var targets = _slots.Resolve(command.SlotId);
+        if (targets.Count == 0)
         {
             _logger.LogWarning("Slot {SlotId} not found in registry", command.SlotId);
             return OptimizerErrors.SlotNotFound;
         }
 
+        // La imagen se valida una sola vez aunque se publique en varias salidas.
         if (ValidateImage(command.ImageBytes, command.ContentType) is { } validationError)
         {
             return validationError;
         }
 
-        if (!slot.EffectiveRefinement.TryWith(
-                command.Refinement?.SuppressShadow,
-                command.Refinement?.RemoveDesk,
-                command.Refinement?.ProtectLegs,
-                command.Refinement?.CropMarginPct,
-                out var refinement))
-        {
-            return OptimizerErrors.CropMarginOutOfRange;
-        }
+        var enqueued = new List<EnqueuedJob>(targets.Count);
+        var created = new List<ProcessJob>(targets.Count);
 
-        var job = ProcessJob.Create(
-            slot, command.ImageBytes, command.ContentType, _time.GetUtcNow(), refinement);
-        await _jobs.AddAsync(job, cancellationToken);
-
-        if (!_processingQueue.TryEnqueue(job.Id))
+        foreach (var slot in targets)
         {
-            _logger.LogError("Failed to enqueue job {JobId} into the processing channel", job.Id);
-            job.MarkError("The processing queue is full.", _time.GetUtcNow());
-            await _jobs.UpdateAsync(job, cancellationToken);
-            return OptimizerErrors.ProcessingQueueFull;
+            var job = ProcessJob.Create(slot, command.ImageBytes, command.ContentType, _time.GetUtcNow());
+            await _jobs.AddAsync(job, cancellationToken);
+            created.Add(job);
+
+            if (!_processingQueue.TryEnqueue(job.Id))
+            {
+                _logger.LogError("Failed to enqueue job {JobId} into the processing channel", job.Id);
+                await FailAllAsync(created, cancellationToken);
+                return OptimizerErrors.ProcessingQueueFull;
+            }
+
+            enqueued.Add(new EnqueuedJob(job.Id, slot.Id, slot.Width, slot.Height, job.Status));
         }
 
         _logger.LogInformation(
-            "Job {JobId} enqueued for slot {SlotId} ({Bytes} bytes, {ContentType}, shadow={Shadow}, desk={Desk}, legs={Legs}, margin={Margin})",
-            job.Id, slot.Id, command.ImageBytes.Length, command.ContentType,
-            refinement.SuppressShadow, refinement.RemoveDesk, refinement.ProtectLegs, refinement.CropMarginPct);
+            "Enqueued {Count} job(s) for {SlotId} ({Bytes} bytes, {ContentType}): {JobIds}",
+            enqueued.Count, command.SlotId, command.ImageBytes.Length, command.ContentType,
+            string.Join(", ", enqueued.Select(job => job.JobId)));
 
-        return new EnqueueJobResult(job.Id, job.Status);
+        return new EnqueueJobResult(enqueued);
+    }
+
+    /// <summary>
+    /// Si la cola se llena a mitad del paquete, los trabajos ya creados no pueden quedarse en
+    /// <see cref="JobStatus.Queued"/> para siempre: se cierran en error para que el repositorio
+    /// los descarte al cumplirse la retención.
+    /// </summary>
+    private async Task FailAllAsync(IEnumerable<ProcessJob> jobs, CancellationToken cancellationToken)
+    {
+        var now = _time.GetUtcNow();
+        foreach (var job in jobs.Where(job => !job.IsTerminal))
+        {
+            job.MarkError("The processing queue is full.", now);
+            await _jobs.UpdateAsync(job, cancellationToken);
+        }
     }
 
     private static Error? ValidateImage(byte[] imageBytes, string contentType)

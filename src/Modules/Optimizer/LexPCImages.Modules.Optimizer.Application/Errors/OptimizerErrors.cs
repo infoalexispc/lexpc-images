@@ -7,7 +7,7 @@ namespace LexPCImages.Modules.Optimizer.Application.Errors;
 /// Catálogo de errores que la aplicación devuelve al exterior. Vive en Application y no en
 /// Domain a propósito: un <c>code</c> como <c>optimizer.image_too_large</c> y su mensaje son
 /// parte del contrato de la API, no vocabulario del negocio. Las reglas de negocio de verdad
-/// (transiciones de <see cref="ProcessJob"/>, rango de <c>CropMarginPct</c>) viven en el dominio
+/// (transiciones de <see cref="ProcessJob"/>, umbral de recorte) viven en el dominio
 /// y se defienden con excepciones.
 /// </summary>
 public static class OptimizerErrors
@@ -56,9 +56,6 @@ public static class OptimizerErrors
         "optimizer.file_required",
         "file is required and cannot be empty.");
 
-    public static readonly Error CropMarginOutOfRange = Error.Validation(
-        "optimizer.crop_margin_out_of_range",
-        "cropMarginPct must be between 0 and 0.5.");
 
     public static Error PipelineNotAvailable(string mode) => Error.Internal(
         "optimizer.pipeline_not_available",

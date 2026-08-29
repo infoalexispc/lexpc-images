@@ -34,7 +34,7 @@ public sealed class CoverOrPadPipelineTests
     private CoverOrPadPipeline CreateSut() => new(_resizer, _padder, _notifier);
 
     private ImagePipelineContext ContextFor(DecodedImage source) =>
-        new(_jobId, source, Slot, RefinementOptions.Defaults);
+        new(_jobId, source, Slot);
 
     [Fact]
     public void Mode_is_CoverOrPad()
@@ -72,7 +72,7 @@ public sealed class CoverOrPadPipelineTests
             Slot.Id, Slot.Width, Slot.Height,
             mode: SlotMode.CoverOrPad,
             coverFit: new CoverFitOptions(minCoverage: 0.4));
-        var context = new ImagePipelineContext(_jobId, Wide, permissiveSlot, RefinementOptions.Defaults);
+        var context = new ImagePipelineContext(_jobId, Wide, permissiveSlot);
 
         await CreateSut().ExecuteAsync(context, CancellationToken.None);
 
@@ -91,13 +91,9 @@ public sealed class CoverOrPadPipelineTests
         await CreateSut().ExecuteAsync(context, CancellationToken.None);
 
         await _notifier.Received(1).OnStageStartedAsync(
-            _jobId, ProcessingStage.Resizing, OptimizerProgress.CoverFitting.Start, Arg.Any<CancellationToken>());
+            _jobId, ProcessingStage.Resizing, OptimizerProgress.Resizing.Start, Arg.Any<CancellationToken>());
         await _notifier.Received(1).OnStageCompletedAsync(
-            _jobId, ProcessingStage.Resizing, OptimizerProgress.CoverFitting.End, Arg.Any<CancellationToken>());
-        await _notifier.DidNotReceive().OnStageStartedAsync(
-            _jobId, ProcessingStage.Inferring, Arg.Any<int>(), Arg.Any<CancellationToken>());
-        await _notifier.DidNotReceive().OnStageStartedAsync(
-            _jobId, ProcessingStage.Cropping, Arg.Any<int>(), Arg.Any<CancellationToken>());
+            _jobId, ProcessingStage.Resizing, OptimizerProgress.Resizing.End, Arg.Any<CancellationToken>());
     }
 
     [Fact]

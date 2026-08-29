@@ -5,12 +5,17 @@ namespace LexPCImages.Modules.Optimizer.Domain.ValueObjects;
 /// </summary>
 public sealed record SlotDefinition
 {
-    public static readonly SlotDefinition PcHome = new(
-        SlotId.Parse("optimizar-imagen-pc-home"),
+    public static readonly SlotDefinition PcHomeSmall = new(
+        SlotId.Parse("optimizar-imagen-pc-home-320x315"),
         width: 320,
         height: 315,
-        refinement: RefinementOptions.Defaults,
-        mode: SlotMode.BackgroundRemoval);
+        mode: SlotMode.FitTransparent);
+
+    public static readonly SlotDefinition PcHomeWide = new(
+        SlotId.Parse("optimizar-imagen-pc-home-992x715"),
+        width: 992,
+        height: 715,
+        mode: SlotMode.FitTransparent);
 
     public static readonly SlotDefinition PcMainSection = new(
         SlotId.Parse("optimizar-imagen-pc-seccion-principal"),
@@ -28,7 +33,6 @@ public sealed record SlotDefinition
     public SlotId Id { get; }
     public int Width { get; }
     public int Height { get; }
-    public RefinementOptions? Refinement { get; }
     public SlotMode Mode { get; }
     public CoverFitOptions? CoverFit { get; }
 
@@ -36,8 +40,7 @@ public sealed record SlotDefinition
         SlotId id,
         int width,
         int height,
-        RefinementOptions? refinement = null,
-        SlotMode mode = SlotMode.BackgroundRemoval,
+        SlotMode mode = SlotMode.ResizeAndPad,
         CoverFitOptions? coverFit = null)
     {
         if (string.IsNullOrWhiteSpace(id.Value))
@@ -60,12 +63,9 @@ public sealed record SlotDefinition
         Id = id;
         Width = width;
         Height = height;
-        Refinement = refinement;
         Mode = mode;
         CoverFit = coverFit;
     }
-
-    public RefinementOptions EffectiveRefinement => Refinement ?? RefinementOptions.Defaults;
 
     public CoverFitOptions EffectiveCoverFit => CoverFit ?? CoverFitOptions.Defaults;
 

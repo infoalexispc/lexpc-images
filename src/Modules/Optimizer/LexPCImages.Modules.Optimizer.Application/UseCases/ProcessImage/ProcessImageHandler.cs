@@ -61,7 +61,7 @@ public sealed class ProcessImageHandler
         }
         await _notifier.CompleteAsync(job.Id, OptimizerProgress.Decoding, cancellationToken);
 
-        var context = new ImagePipelineContext(job.Id, decoded, slot, job.EffectiveRefinement);
+        var context = new ImagePipelineContext(job.Id, decoded, slot);
         var processed = await pipeline.ExecuteAsync(context, cancellationToken);
 
         await _notifier.BeginAsync(job.Id, OptimizerProgress.Encoding, cancellationToken);

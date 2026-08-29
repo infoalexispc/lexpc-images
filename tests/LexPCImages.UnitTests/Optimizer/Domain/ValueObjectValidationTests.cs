@@ -19,69 +19,11 @@ public sealed class ValueObjectValidationTests
         SlotId.Parse("  slot  ").Value.Should().Be("slot");
     }
 
-    [Theory]
-    [InlineData(-0.01)]
-    [InlineData(0.51)]
-    public void RefinementOptions_rejects_margins_outside_the_domain_range(double margin)
-    {
-        var act = () => new RefinementOptions(cropMarginPct: margin);
 
-        act.Should().Throw<ArgumentOutOfRangeException>();
-    }
 
-    [Fact]
-    public void RefinementOptions_rejects_non_finite_margins()
-    {
-        var act = () => new RefinementOptions(cropMarginPct: double.NaN);
 
-        act.Should().Throw<ArgumentOutOfRangeException>();
-    }
 
-    [Theory]
-    [InlineData(-0.01)]
-    [InlineData(0.51)]
-    [InlineData(double.NaN)]
-    [InlineData(double.PositiveInfinity)]
-    public void RefinementOptions_TryCreate_reports_invalid_margins_without_throwing(double margin)
-    {
-        var created = RefinementOptions.TryCreate(true, true, true, margin, out var options);
 
-        created.Should().BeFalse();
-        options.Should().BeNull();
-    }
-
-    [Fact]
-    public void RefinementOptions_TryCreate_builds_a_valid_instance()
-    {
-        var created = RefinementOptions.TryCreate(false, true, false, 0.25, out var options);
-
-        created.Should().BeTrue();
-        options!.SuppressShadow.Should().BeFalse();
-        options.RemoveDesk.Should().BeTrue();
-        options.ProtectLegs.Should().BeFalse();
-        options.CropMarginPct.Should().Be(0.25);
-    }
-
-    [Fact]
-    public void RefinementOptions_TryWith_keeps_the_values_that_are_not_overridden()
-    {
-        var applied = RefinementOptions.Defaults.TryWith(
-            suppressShadow: false, removeDesk: null, protectLegs: null, cropMarginPct: null, out var options);
-
-        applied.Should().BeTrue();
-        options!.SuppressShadow.Should().BeFalse();
-        options.RemoveDesk.Should().Be(RefinementOptions.Defaults.RemoveDesk);
-        options.CropMarginPct.Should().Be(RefinementOptions.Defaults.CropMarginPct);
-    }
-
-    [Fact]
-    public void RefinementOptions_TryWith_rejects_an_out_of_range_override()
-    {
-        var applied = RefinementOptions.Defaults.TryWith(null, null, null, 0.9, out var options);
-
-        applied.Should().BeFalse();
-        options.Should().BeNull();
-    }
 
     [Fact]
     public void SlotDefinition_rejects_non_positive_dimensions()
@@ -99,13 +41,6 @@ public sealed class ValueObjectValidationTests
         act.Should().Throw<ArgumentOutOfRangeException>();
     }
 
-    [Fact]
-    public void SlotDefinition_falls_back_to_the_default_refinement()
-    {
-        var slot = new SlotDefinition(SlotId.Parse("slot"), 10, 10);
-
-        slot.EffectiveRefinement.Should().Be(RefinementOptions.Defaults);
-    }
 
     [Fact]
     public void SlotDefinition_falls_back_to_the_default_cover_fit()
@@ -114,6 +49,27 @@ public sealed class ValueObjectValidationTests
 
         slot.CoverFit.Should().BeNull();
         slot.EffectiveCoverFit.Should().Be(CoverFitOptions.Defaults);
+    }
+
+    [Fact]
+    public void SlotBundle_rejects_an_empty_or_repeated_set_of_outputs()
+    {
+        var empty = () => new SlotBundle(SlotId.Parse("bundle"), []);
+        var repeated = () => new SlotBundle(
+            SlotId.Parse("bundle"), [SlotDefinition.PcHomeSmall, SlotDefinition.PcHomeSmall]);
+
+        empty.Should().Throw<ArgumentException>();
+        repeated.Should().Throw<ArgumentException>();
+    }
+
+    [Fact]
+    public void PcHome_bundle_produces_320x315_and_992x715_without_a_background()
+    {
+        var outputs = SlotBundle.PcHome.Outputs;
+
+        SlotBundle.PcHome.Id.Value.Should().Be("optimizar-imagen-pc-home");
+        outputs.Select(slot => (slot.Width, slot.Height)).Should().Equal((320, 315), (992, 715));
+        outputs.Should().OnlyContain(slot => slot.Mode == SlotMode.FitTransparent);
     }
 
     [Fact]
