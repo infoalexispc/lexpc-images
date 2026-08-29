@@ -106,4 +106,25 @@ public sealed class ValueObjectValidationTests
 
         slot.EffectiveRefinement.Should().Be(RefinementOptions.Defaults);
     }
+
+    [Fact]
+    public void SlotDefinition_falls_back_to_the_default_cover_fit()
+    {
+        var slot = new SlotDefinition(SlotId.Parse("slot"), 10, 10);
+
+        slot.CoverFit.Should().BeNull();
+        slot.EffectiveCoverFit.Should().Be(CoverFitOptions.Defaults);
+    }
+
+    [Fact]
+    public void PcLastSection_targets_619x720_in_cover_or_pad_mode()
+    {
+        var slot = SlotDefinition.PcLastSection;
+
+        slot.Id.Value.Should().Be("optimizar-imagen-pc-ultima-seccion");
+        slot.Width.Should().Be(619);
+        slot.Height.Should().Be(720);
+        slot.Mode.Should().Be(SlotMode.CoverOrPad);
+        slot.EffectiveCoverFit.Should().Be(CoverFitOptions.Defaults);
+    }
 }

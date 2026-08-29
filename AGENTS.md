@@ -1,6 +1,6 @@
 # AGENTS.md — lexpc-images
 
-API en **.NET 10** con arquitectura **hexagonal + DDD** en monolito modular. Composition root único: `src/LexPCImages.API/Program.cs`. v0.1 expone el módulo `Optimizer` con dos pipelines reales seleccionados por el `SlotMode` del slot.
+API en **.NET 10** con arquitectura **hexagonal + DDD** en monolito modular. Composition root único: `src/LexPCImages.API/Program.cs`. v0.1 expone el módulo `Optimizer` con tres pipelines reales seleccionados por el `SlotMode` del slot.
 
 ## Stack
 
@@ -47,14 +47,14 @@ LexPCImages.slnx
 │   │   ├── LexPCImages.Shared/           # Result<T>, Error, ErrorType
 │   │   └── LexPCImages.Shared.Web/       # ErrorHttpMapper: única traducción Error → HTTP
 │   └── Modules/Optimizer/
-│       ├── Domain/                       # ProcessJob, SlotDefinition, RefinementOptions (sin dependencias)
+│       ├── Domain/                       # ProcessJob, SlotDefinition, RefinementOptions, CoverFitOptions (sin dependencias)
 │       ├── Application/                  # casos de uso, puertos, pipelines, progreso, validación, errores
 │       ├── Infrastructure/               # ONNX, ImageSharp, refinadores de máscara, cola, repositorio
 │       └── Presentation/                 # OptimizerController, OptimizerModule, DTOs
 └── tests/
-    ├── LexPCImages.UnitTests/            # 151 tests
-    ├── LexPCImages.ArchitectureTests/    # 17 tests
-    └── LexPCImages.IntegrationTests/     # 14 tests
+    ├── LexPCImages.UnitTests/            # 185 tests
+    ├── LexPCImages.ArchitectureTests/    # 18 tests
+    └── LexPCImages.IntegrationTests/     # 16 tests
 ```
 
 ### Estructura interna de Application
@@ -63,7 +63,7 @@ LexPCImages.slnx
 |---|---|
 | `Abstractions/` | Puertos hacia servicios técnicos (`IImageDecoder`, `IImageEncoder`, `IBackgroundRemovalService`, refinadores, `IJobProgressNotifier`) y sus DTOs (`DecodedImage`, `MaskResult`, `EncodedImage`…) |
 | `Ports/` | Puertos hacia infraestructura de estado: `IJobRepository`, `IJobQueueWriter`/`IJobQueueReader`, `ISlotRegistry` |
-| `Pipelines/` | Una estrategia por `SlotMode`: `BackgroundRemovalPipeline`, `ResizeAndPadPipeline` |
+| `Pipelines/` | Una estrategia por `SlotMode`: `BackgroundRemovalPipeline`, `ResizeAndPadPipeline`, `CoverOrPadPipeline` |
 | `Progress/` | `OptimizerProgress` (tabla de tramos), `StageProgress`, extensiones del notificador |
 | `Imaging/` | `MaskCompositor`: composición de la máscara sobre el RGBA |
 | `Validation/` | `ImageContentTypes`: media types admitidos + firma real de los bytes |
@@ -102,6 +102,9 @@ GET /api/optimizer/jobs/{id}/download  →  "{slotId}-{jobId:N}.webp"
 
 `BackgroundRemovalPipeline` (`SlotMode.BackgroundRemoval`): RMBG → protección de patas → mesa → sombras → recorte ajustado → composición de máscara → estirado al tamaño del slot.
 `ResizeAndPadPipeline` (`SlotMode.ResizeAndPad`): escalado proporcional + relleno con el color de fondo dominante.
+`CoverOrPadPipeline` (`SlotMode.CoverOrPad`): decide entre recortar y rellenar según la cobertura que dejaría el
+recorte (`CoverFitOptions.ShouldCrop`). Por encima del umbral escala cubriendo y recorta centrado; por debajo
+delega en el mismo relleno que `ResizeAndPad`. Un solo remuestreo en ambos caminos.
 
 ### Progreso
 
@@ -109,7 +112,7 @@ Los porcentajes viven **solo** en `Application/Progress/OptimizerProgress.cs`. N
 
 | Etapa | Tramo | Pipeline |
 |---|---|---|
-| `Decoding` | 5 → 15 | ambos |
+| `Decoding` | 5 → 15 | todos |
 | `Inferring` | 15 → 50 | BackgroundRemoval |
 | `LegProtecting` | 50 → 58 | BackgroundRemoval (opcional) |
 | `DeskRemoving` | 58 → 66 | BackgroundRemoval (opcional) |
@@ -117,7 +120,8 @@ Los porcentajes viven **solo** en `Application/Progress/OptimizerProgress.cs`. N
 | `Cropping` | 74 → 82 | BackgroundRemoval |
 | `Resizing` | 82 → 90 | BackgroundRemoval |
 | `Resizing` | 15 → 90 | ResizeAndPad |
-| `Encoding` | 92 → 100 | ambos |
+| `Resizing` | 15 → 90 | CoverOrPad |
+| `Encoding` | 92 → 100 | todos |
 
 ## Endpoints
 
@@ -195,11 +199,11 @@ dotnet run --project src/LexPCImages.API     # puerto 5232
 
 | Suite | Tests | Cubre |
 |---|---|---|
-| `UnitTests` | 151 | Dominio, casos de uso, pipelines, repositorio (con `FakeTimeProvider`), validación de firma, cola, ImageSharp, `Result<T>` |
+| `UnitTests` | 185 | Dominio, casos de uso, pipelines, repositorio (con `FakeTimeProvider`), validación de firma, cola, ImageSharp, `Result<T>` |
 | `ArchitectureTests` | 18 | Capas, dominio sin dependencias, contratos, independencia web, reloj del dominio, mapeo de errores centralizado, no console |
-| `IntegrationTests` | 14 | `WebApplicationFactory` con doble de segmentación: enqueue → polling → download, ambos `SlotMode`, `problem+json` |
+| `IntegrationTests` | 16 | `WebApplicationFactory` con doble de segmentación: enqueue → polling → download, los tres `SlotMode`, `problem+json` |
 
-**Total: 183/183 verdes.**
+**Total: 219/219 verdes.**
 
 ## Estado de las fases
 

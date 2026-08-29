@@ -3,6 +3,7 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using FluentAssertions;
 using LexPCImages.Modules.Optimizer.Domain.ValueObjects;
+using SixLabors.ImageSharp.PixelFormats;
 
 namespace LexPCImages.IntegrationTests;
 
@@ -83,6 +84,65 @@ public sealed class OptimizerPipelineTests : IClassFixture<OptimizerWebApplicati
     }
 
     [Fact]
+    public async Task Cover_or_pad_slot_crops_a_source_whose_aspect_ratio_is_close_to_the_slot()
+    {
+        var client = _factory.CreateClient();
+        var slot = SlotDefinition.PcLastSection;
+
+        var enqueueResponse = await client.PostAsync(
+            "/api/optimizer/jobs",
+            BuildMultipart(slot.Id.Value, TestImages.PngWithSideMarkers(1000, 1000), "image/png", "ficha.png"));
+        enqueueResponse.StatusCode.Should().Be(HttpStatusCode.Accepted);
+        var enqueued = await enqueueResponse.Content.ReadFromJsonAsync<EnqueueJobResponseDto>();
+
+        var final = await PollUntilTerminalAsync(client, enqueued!.JobId.ToString(), TimeSpan.FromSeconds(20));
+        final.Status.Should().Be("Done");
+
+        var download = await client.GetAsync($"/api/optimizer/jobs/{enqueued.JobId}/download");
+        download.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        using var image = SixLabors.ImageSharp.Image.Load<Rgba32>(await download.Content.ReadAsByteArrayAsync());
+        image.Width.Should().Be(619);
+        image.Height.Should().Be(720);
+        ShouldLookLike(
+            image[10, image.Height / 2],
+            TestImages.Background,
+            "el recorte centrado se come las marcas laterales");
+    }
+
+    [Fact]
+    public async Task Cover_or_pad_slot_pads_a_wide_source_with_the_detected_background()
+    {
+        var client = _factory.CreateClient();
+        var slot = SlotDefinition.PcLastSection;
+
+        var enqueueResponse = await client.PostAsync(
+            "/api/optimizer/jobs",
+            BuildMultipart(slot.Id.Value, TestImages.PngWithSideMarkers(1600, 900), "image/png", "ficha.png"));
+        enqueueResponse.StatusCode.Should().Be(HttpStatusCode.Accepted);
+        var enqueued = await enqueueResponse.Content.ReadFromJsonAsync<EnqueueJobResponseDto>();
+
+        var final = await PollUntilTerminalAsync(client, enqueued!.JobId.ToString(), TimeSpan.FromSeconds(20));
+        final.Status.Should().Be("Done");
+
+        var download = await client.GetAsync($"/api/optimizer/jobs/{enqueued.JobId}/download");
+        download.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        using var image = SixLabors.ImageSharp.Image.Load<Rgba32>(await download.Content.ReadAsByteArrayAsync());
+        image.Width.Should().Be(619);
+        image.Height.Should().Be(720);
+        ShouldLookLike(
+            image[10, image.Height / 2],
+            TestImages.Marker,
+            "al rellenar se conserva la imagen entera, marcas incluidas");
+        ShouldLookLike(
+            image[image.Width / 2, 5],
+            TestImages.Background,
+            "la banda superior se rellena con el color de fondo detectado");
+        image[image.Width / 2, 5].A.Should().Be(255, "el relleno es opaco, no transparente");
+    }
+
+    [Fact]
     public async Task A_decode_failure_marks_the_job_as_error_without_leaking_internals()
     {
         var client = _factory.CreateClient();
@@ -125,6 +185,19 @@ public sealed class OptimizerPipelineTests : IClassFixture<OptimizerWebApplicati
         var download = await client.GetAsync($"/api/optimizer/jobs/{enqueued!.JobId}/download");
 
         download.StatusCode.Should().Be(HttpStatusCode.Conflict);
+    }
+
+    /// <summary>El remuestreo Lanczos3 no devuelve el color exacto, asi que se compara con holgura.</summary>
+    private static void ShouldLookLike(Rgba32 actual, Rgba32 expected, string because)
+    {
+        const int Tolerance = 24;
+        var distance =
+            Math.Abs(actual.R - expected.R)
+            + Math.Abs(actual.G - expected.G)
+            + Math.Abs(actual.B - expected.B);
+
+        distance.Should().BeLessThanOrEqualTo(
+            Tolerance, "{0} (esperado {1}, obtenido {2})", because, expected, actual);
     }
 
     private static MultipartFormDataContent BuildMultipart(

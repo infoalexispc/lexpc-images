@@ -22,4 +22,7 @@ public static class OptimizerProgress
 
     // Pipeline de redimensionado con relleno: ocupa el tramo [15, 90] con una sola etapa.
     public static readonly StageProgress ResizingAndPadding = new(ProcessingStage.Resizing, 15, 90);
+
+    // Pipeline de recorte o relleno: mismo tramo y misma etapa, la decision no la ve el cliente.
+    public static readonly StageProgress CoverFitting = new(ProcessingStage.Resizing, 15, 90);
 }

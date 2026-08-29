@@ -11,6 +11,7 @@ public sealed class SlotRegistry : ISlotRegistry
     [
         SlotDefinition.PcHome,
         SlotDefinition.PcMainSection,
+        SlotDefinition.PcLastSection,
     ];
 
     private readonly FrozenDictionary<SlotId, SlotDefinition> _slots = KnownSlots.ToFrozenDictionary(slot => slot.Id);

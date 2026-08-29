@@ -4,4 +4,5 @@ public enum SlotMode
 {
     BackgroundRemoval,
     ResizeAndPad,
+    CoverOrPad,
 }

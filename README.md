@@ -9,6 +9,7 @@ Pipeline de optimización de imágenes para el catálogo público. El slot elegi
 ```
 optimizar-imagen-pc-home            →  quitar fondo (RMBG-1.4) → refinar máscara → recortar → 320×315  → WebP lossless
 optimizar-imagen-pc-seccion-principal →  escalar proporcional + relleno de fondo   → 1000×720 → WebP lossless
+optimizar-imagen-pc-ultima-seccion  →  recortar centrado, o rellenar si el recorte mutila → 619×720 → WebP lossless
 ```
 
 ## Arquitectura
@@ -93,9 +94,9 @@ dotnet test LexPCImages.slnx
 
 | Suite | Tests | Cubre |
 |---|---|---|
-| `UnitTests` | 151 | Dominio, casos de uso, pipelines, repositorio, validación, ImageSharp, `Result<T>` |
+| `UnitTests` | 185 | Dominio, casos de uso, pipelines, repositorio, validación, ImageSharp, `Result<T>` |
 | `ArchitectureTests` | 18 | Capas, contratos, independencia web, reloj del dominio, mapeo de errores |
-| `IntegrationTests` | 14 | `WebApplicationFactory`: enqueue → polling → download, ambos slots, `problem+json` |
+| `IntegrationTests` | 16 | `WebApplicationFactory`: enqueue → polling → download, los tres slots, `problem+json` |
 
 Cobertura objetivo ≥ 90% (F5+).
 
