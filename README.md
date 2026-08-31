@@ -14,8 +14,10 @@ optimizar-imagen-pc-seccion-principal →  escalar proporcional + relleno del co
 optimizar-imagen-pc-ultima-seccion    →  recortar centrado, o rellenar si el recorte mutila → 619×720
 ```
 
-Todas las salidas son WebP lossless. Las de `pc-home` esperan imágenes que ya vienen sin fondo:
-lo que sobra al encajar la proporción queda transparente, nunca se rellena con un color.
+Todas las salidas son WebP con pérdida a calidad 75, configurable. El canal alfa se codifica
+aparte y sin pérdida, así que la máscara de los recortes sale exacta. Las salidas de `pc-home`
+esperan imágenes que ya vienen sin fondo: lo que sobra al encajar la proporción queda
+transparente, nunca se rellena con un color.
 
 ## Arquitectura
 
@@ -85,7 +87,9 @@ Los errores se devuelven como `application/problem+json` con un campo `code` est
   "Optimizer": {
     "QueueCapacity": 100,
     "JobRetention": "00:30:00",               // cuánto se conserva un trabajo terminado
-    "MaxTrackedJobs": 500
+    "MaxTrackedJobs": 500,
+    "WebpQuality": 75,                        // calidad del WebP con pérdida, 1-100
+    "WebpLossless": false                     // exacto pixel a pixel, ~8x mas peso
   },
   "Cors": {
     "AllowedOrigins": [ "http://localhost:4300" ]
@@ -103,7 +107,7 @@ dotnet test LexPCImages.slnx
 
 | Suite | Tests | Cubre |
 |---|---|---|
-| `UnitTests` | 142 | Dominio, casos de uso, pipelines, registro de slots, repositorio, validación, ImageSharp, `Result<T>` |
+| `UnitTests` | 150 | Dominio, casos de uso, pipelines, registro de slots, repositorio, validación, ImageSharp, codificación WebP, `Result<T>` |
 | `ArchitectureTests` | 18 | Capas, contratos, independencia web, reloj del dominio, mapeo de errores |
 | `IntegrationTests` | 16 | Host real, sin dobles: enqueue → polling → download, paquete y slots sueltos, `problem+json` |
 
