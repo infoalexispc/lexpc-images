@@ -45,4 +45,19 @@ public sealed class OptimizerOptions
     /// </para>
     /// </summary>
     public bool WebpLossless { get; set; }
+
+    /// <summary>
+    /// Filtro con el que se reducen las imágenes. Solo se aplica cuando el destino tiene menos
+    /// píxeles que el origen: al ampliar siempre manda Lanczos3.
+    /// <para>
+    /// El valor por defecto es <see cref="Configuration.DownscaleFilter.Box"/> porque es el que
+    /// conserva las tramas finas del producto —la rejilla frontal de una caja, el mallado de un
+    /// filtro— al bajar de 1600 px a 320. Lanczos3, que era el filtro anterior, las elimina por
+    /// ser más finas que dos píxeles de salida y deja el panel liso; es más fiel al máster, pero
+    /// se lee como una imagen borrosa. <see cref="Configuration.DownscaleFilter.Lanczos3"/> sigue
+    /// disponible para volver al comportamiento antiguo.
+    /// </para>
+    /// </summary>
+    [EnumDataType(typeof(DownscaleFilter))]
+    public DownscaleFilter DownscaleFilter { get; set; } = DownscaleFilter.Box;
 }

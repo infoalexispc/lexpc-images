@@ -6,16 +6,24 @@ namespace LexPCImages.Modules.Optimizer.Application.Pipelines;
 
 /// <summary>
 /// Escala manteniendo la proporción y deja transparente lo que sobra. Es el modo para imágenes que
-/// ya llegan sin fondo: no recorta, no deforma y no inventa un color de relleno que se notaría
-/// sobre el alfa del original.
+/// ya llegan sin fondo: no recorta contenido, no deforma y no inventa un color de relleno que se
+/// notaría sobre el alfa del original.
+/// <para>
+/// Antes de escalar quita el marco transparente del origen. Encajar el lienzo entero —aire
+/// incluido— gastaba los píxeles del slot en alfa cero: con el máster medido el PC salía a 267×238
+/// dentro de 320×315 pudiendo salir a 320×285, un 20% más de lado. Ese aire sobrante no aporta
+/// nada porque el propio modo vuelve a rellenar de transparencia lo que quede libre.
+/// </para>
 /// </summary>
 public sealed class FitTransparentPipeline : IImageProcessingPipeline
 {
+    private readonly IImageTrimmer _trimmer;
     private readonly IImageResizer _resizer;
     private readonly IJobProgressNotifier _notifier;
 
-    public FitTransparentPipeline(IImageResizer resizer, IJobProgressNotifier notifier)
+    public FitTransparentPipeline(IImageTrimmer trimmer, IImageResizer resizer, IJobProgressNotifier notifier)
     {
+        _trimmer = trimmer;
         _resizer = resizer;
         _notifier = notifier;
     }
@@ -29,8 +37,9 @@ public sealed class FitTransparentPipeline : IImageProcessingPipeline
         ArgumentNullException.ThrowIfNull(context);
 
         await _notifier.BeginAsync(context.JobId, OptimizerProgress.Resizing, cancellationToken);
+        var trimmed = _trimmer.TrimTransparentBorder(context.Source);
         var fitted = await _resizer.ResizeAsync(
-            context.Source,
+            trimmed,
             context.Slot.Width,
             context.Slot.Height,
             ResizeMode.FitWithTransparentPadding,

@@ -11,14 +11,17 @@ public sealed class FitTransparentPipelineTests
 {
     private static readonly SlotDefinition Slot = SlotDefinition.PcHomeSmall;
     private static readonly DecodedImage Source = new(800, 600, new byte[800 * 600 * 4]);
+    private static readonly DecodedImage Trimmed = new(600, 500, new byte[600 * 500 * 4]);
     private static readonly DecodedImage Output = new(Slot.Width, Slot.Height, new byte[Slot.Width * Slot.Height * 4]);
 
+    private readonly IImageTrimmer _trimmer = Substitute.For<IImageTrimmer>();
     private readonly IImageResizer _resizer = Substitute.For<IImageResizer>();
     private readonly IJobProgressNotifier _notifier = Substitute.For<IJobProgressNotifier>();
     private readonly Guid _jobId = Guid.NewGuid();
 
     public FitTransparentPipelineTests()
     {
+        _trimmer.TrimTransparentBorder(Arg.Any<DecodedImage>()).Returns(Trimmed);
         _resizer
             .ResizeAsync(
                 Arg.Any<DecodedImage>(), Arg.Any<int>(), Arg.Any<int>(),
@@ -26,7 +29,7 @@ public sealed class FitTransparentPipelineTests
             .Returns(Task.FromResult(Output));
     }
 
-    private FitTransparentPipeline CreateSut() => new(_resizer, _notifier);
+    private FitTransparentPipeline CreateSut() => new(_trimmer, _resizer, _notifier);
 
     [Fact]
     public void Mode_is_FitTransparent()
@@ -43,8 +46,23 @@ public sealed class FitTransparentPipelineTests
 
         result.Should().Be(Output);
         await _resizer.Received(1).ResizeAsync(
-            Source, Slot.Width, Slot.Height,
+            Trimmed, Slot.Width, Slot.Height,
             ResizeMode.FitWithTransparentPadding, Arg.Any<CancellationToken>());
+    }
+
+    /// <summary>
+    /// El aire transparente del máster se descarta antes de escalar. Si se escalara el lienzo
+    /// entero, los píxeles del slot se repartirían entre el producto y el vacío que lo rodea, y el
+    /// producto saldría más pequeño —y por tanto menos nítido— de lo que cabe.
+    /// </summary>
+    [Fact]
+    public async Task ExecuteAsync_trims_the_transparent_border_before_resizing()
+    {
+        await CreateSut().ExecuteAsync(new ImagePipelineContext(_jobId, Source, Slot), CancellationToken.None);
+
+        _trimmer.Received(1).TrimTransparentBorder(Source);
+        await _resizer.DidNotReceive().ResizeAsync(
+            Source, Arg.Any<int>(), Arg.Any<int>(), Arg.Any<ResizeMode>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]

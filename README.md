@@ -8,8 +8,8 @@ Pipeline de optimización de imágenes para el catálogo público. El slot elegi
 
 ```
 optimizar-imagen-pc-home              →  PAQUETE: una imagen entra, dos trabajos salen
-                                          ├─ 320×315  escalar proporcional sobre transparente
-                                          └─ 992×715  escalar proporcional sobre transparente
+                                          ├─ 320×315  recortar el aire + escalar sobre transparente
+                                          └─ 992×715  recortar el aire + escalar sobre transparente
 optimizar-imagen-pc-seccion-principal →  escalar proporcional + relleno del color de fondo → 1000×720
 optimizar-imagen-pc-ultima-seccion    →  recortar centrado, o rellenar si el recorte mutila → 619×720
 ```
@@ -18,6 +18,11 @@ Todas las salidas son WebP con pérdida a calidad 75, configurable. El canal alf
 aparte y sin pérdida, así que la máscara de los recortes sale exacta. Las salidas de `pc-home`
 esperan imágenes que ya vienen sin fondo: lo que sobra al encajar la proporción queda
 transparente, nunca se rellena con un color.
+
+Antes de escalar, `pc-home` descarta el marco transparente del máster. Encajar el lienzo entero
+gastaba los píxeles del slot en aire: con un máster de 1964×1562 cuyo PC ocupaba 1631×1451, el
+producto salía a 267×238 de los 320×315 disponibles pudiendo salir a 320×285. Nadie veía ese aire
+—el propio modo lo rellena de transparencia— pero se llevaba una quinta parte de la resolución.
 
 ## Arquitectura
 
@@ -89,13 +94,20 @@ Los errores se devuelven como `application/problem+json` con un campo `code` est
     "JobRetention": "00:30:00",               // cuánto se conserva un trabajo terminado
     "MaxTrackedJobs": 500,
     "WebpQuality": 75,                        // calidad del WebP con pérdida, 1-100
-    "WebpLossless": false                     // exacto pixel a pixel, ~8x mas peso
+    "WebpLossless": false,                    // exacto pixel a pixel, ~8x mas peso
+    "DownscaleFilter": "Box"                  // Box | Lanczos3: filtro de reducción
   },
   "Cors": {
     "AllowedOrigins": [ "http://localhost:4300" ]
   }
 }
 ```
+
+`DownscaleFilter` decide qué pasa con las tramas finas al reducir. `Box` (promedio de área) las
+deja pasar: una rejilla más fina que dos píxeles de salida reaparece como muaré y el ojo la lee
+como el detalle del producto. `Lanczos3` es el filtro formalmente correcto y la elimina, que es
+por lo que los frontales mallados salían lisos al bajar de 1600 px a 320. Solo interviene al
+reducir: ampliar usa siempre Lanczos3, porque el promedio de área degenera en bloques.
 
 Los orígenes CORS ya no están en el código: para otro entorno basta con `appsettings.{Environment}.json` o variables de entorno (`Cors__AllowedOrigins__0`).
 
@@ -107,7 +119,7 @@ dotnet test LexPCImages.slnx
 
 | Suite | Tests | Cubre |
 |---|---|---|
-| `UnitTests` | 150 | Dominio, casos de uso, pipelines, registro de slots, repositorio, validación, ImageSharp, codificación WebP, `Result<T>` |
+| `UnitTests` | 162 | Dominio, casos de uso, pipelines, registro de slots, repositorio, validación, ImageSharp (recorte alfa, remuestreo), codificación WebP, `Result<T>` |
 | `ArchitectureTests` | 18 | Capas, contratos, independencia web, reloj del dominio, mapeo de errores |
 | `IntegrationTests` | 16 | Host real, sin dobles: enqueue → polling → download, paquete y slots sueltos, `problem+json` |
 

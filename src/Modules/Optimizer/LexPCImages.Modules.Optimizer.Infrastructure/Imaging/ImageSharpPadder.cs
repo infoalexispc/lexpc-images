@@ -1,5 +1,7 @@
 using LexPCImages.Modules.Optimizer.Application.Abstractions;
+using LexPCImages.Modules.Optimizer.Infrastructure.Configuration;
 using LexPCImages.Modules.Optimizer.Infrastructure.Imaging.Internal;
+using Microsoft.Extensions.Options;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
 using SixLabors.ImageSharp.Processing;
@@ -15,6 +17,15 @@ public sealed class ImageSharpPadder : IImagePadder
 {
     private const int BorderSampleCount = 16;
 
+    private readonly DownscaleFilter _filter;
+
+    public ImageSharpPadder(IOptions<OptimizerOptions> options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+
+        _filter = options.Value.DownscaleFilter;
+    }
+
     public PaddedImage Pad(DecodedImage image, int targetWidth, int targetHeight)
     {
         ArgumentNullException.ThrowIfNull(image);
@@ -26,12 +37,15 @@ public sealed class ImageSharpPadder : IImagePadder
         var offsetX = (targetWidth - scaledWidth) / 2;
         var offsetY = (targetHeight - scaledHeight) / 2;
 
+        var sampler = ResamplerSelector.For(
+            _filter, image.Width, image.Height, scaledWidth, scaledHeight);
+
         using var sourceImage = RgbaImageInterop.ToImage(image);
         sourceImage.Mutate(context => context.Resize(new ResizeOptions
         {
             Size = new Size(scaledWidth, scaledHeight),
             Mode = ImgResizeMode.Stretch,
-            Sampler = KnownResamplers.Lanczos3,
+            Sampler = sampler,
         }));
         var scaled = RgbaImageInterop.ToDecodedImage(sourceImage);
 

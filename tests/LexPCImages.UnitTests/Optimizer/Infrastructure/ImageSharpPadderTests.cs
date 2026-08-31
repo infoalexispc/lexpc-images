@@ -1,6 +1,8 @@
 using FluentAssertions;
 using LexPCImages.Modules.Optimizer.Application.Abstractions;
+using LexPCImages.Modules.Optimizer.Infrastructure.Configuration;
 using LexPCImages.Modules.Optimizer.Infrastructure.Imaging;
+using Microsoft.Extensions.Options;
 
 namespace LexPCImages.UnitTests.Optimizer.Infrastructure;
 
@@ -10,7 +12,7 @@ public sealed class ImageSharpPadderTests
     public void Pad_throws_when_target_dimensions_non_positive()
     {
         var image = MakeImage(100, 100, 200, 200, 200);
-        var padder = new ImageSharpPadder();
+        var padder = CreatePadder();
 
         var act1 = () => padder.Pad(image, 0, 100);
         var act2 = () => padder.Pad(image, 100, -1);
@@ -23,7 +25,7 @@ public sealed class ImageSharpPadderTests
     public void Pad_outputs_target_dimensions()
     {
         var image = MakeImage(200, 100, 200, 200, 200);
-        var padder = new ImageSharpPadder();
+        var padder = CreatePadder();
 
         var result = padder.Pad(image, 1000, 720);
 
@@ -38,7 +40,7 @@ public sealed class ImageSharpPadderTests
         var rgba = new byte[100 * 100 * 4];
         FillRect(rgba, 100, 100, 0, 0, 99, 99, 50, 50, 50);
         var image = new DecodedImage(100, 100, rgba);
-        var padder = new ImageSharpPadder();
+        var padder = CreatePadder();
 
         var result = padder.Pad(image, 200, 200);
 
@@ -54,7 +56,7 @@ public sealed class ImageSharpPadderTests
         var rgba = new byte[200 * 100 * 4];
         FillRect(rgba, 200, 100, 0, 0, 199, 99, 30, 30, 30);
         var image = new DecodedImage(200, 100, rgba);
-        var padder = new ImageSharpPadder();
+        var padder = CreatePadder();
 
         var result = padder.Pad(image, 100, 100);
 
@@ -70,7 +72,7 @@ public sealed class ImageSharpPadderTests
         var rgba = new byte[100 * 200 * 4];
         FillRect(rgba, 100, 200, 0, 0, 99, 199, 30, 30, 30);
         var image = new DecodedImage(100, 200, rgba);
-        var padder = new ImageSharpPadder();
+        var padder = CreatePadder();
 
         var result = padder.Pad(image, 100, 100);
 
@@ -86,7 +88,7 @@ public sealed class ImageSharpPadderTests
         var rgba = new byte[1000 * 720 * 4];
         FillRect(rgba, 1000, 720, 0, 0, 999, 719, 80, 80, 80);
         var image = new DecodedImage(1000, 720, rgba);
-        var padder = new ImageSharpPadder();
+        var padder = CreatePadder();
 
         var result = padder.Pad(image, 1000, 720);
 
@@ -102,6 +104,10 @@ public sealed class ImageSharpPadderTests
         FillRect(rgba, width, height, 0, 0, width - 1, height - 1, r, g, b);
         return new DecodedImage(width, height, rgba);
     }
+
+    private static ImageSharpPadder CreatePadder(
+        DownscaleFilter filter = DownscaleFilter.Box) =>
+        new(Options.Create(new OptimizerOptions { DownscaleFilter = filter }));
 
     private static void FillRect(
         byte[] rgba,

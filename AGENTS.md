@@ -8,7 +8,7 @@ API en **.NET 10** con arquitectura **hexagonal + DDD** en monolito modular. Com
 - **`.editorconfig` en la raíz** con las reglas de estilo y nombres. `EnforceCodeStyleInBuild=true` + `GenerateDocumentationFile=true` hacen que IDE0005 (usings innecesarios) rompa la compilación.
 - **Versiones NuGet centralizadas** en `Directory.Packages.props` raíz. Los `.csproj` llevan `<PackageReference Include="X" />` **sin** atributo `Version`.
 - **CentralPackageTransitivePinningEnabled** para fijar versiones transitivas seguras (hoy `Microsoft.OpenApi 2.7.5`).
-- **ImageSharp 3.1.12** — decode, resize Lanczos3, encode WebP lossless.
+- **ImageSharp 3.1.12** — decode, recorte del marco alfa, resize con filtro configurable (`Box`/`Lanczos3`), encode WebP con pérdida a esfuerzo máximo.
 - **Scalar.AspNetCore** en `/scalar` (OpenAPI en `/openapi/v1.json`), **Serilog.AspNetCore** + `Serilog.Sinks.Console`.
 - **Tests**: `xUnit` + `FluentAssertions` + `NSubstitute` + `Microsoft.Extensions.TimeProvider.Testing` + `NetArchTest.Rules` + `Microsoft.AspNetCore.Mvc.Testing` + `coverlet.collector`.
 
@@ -60,7 +60,7 @@ LexPCImages.slnx
 
 | Carpeta | Contenido |
 |---|---|
-| `Abstractions/` | Puertos hacia servicios técnicos (`IImageDecoder`, `IImageEncoder`, `IImageResizer`, `IImagePadder`, `IJobProgressNotifier`) y sus DTOs (`DecodedImage`, `EncodedImage`…) |
+| `Abstractions/` | Puertos hacia servicios técnicos (`IImageDecoder`, `IImageEncoder`, `IImageResizer`, `IImagePadder`, `IImageTrimmer`, `IJobProgressNotifier`) y sus DTOs (`DecodedImage`, `EncodedImage`…) |
 | `Ports/` | Puertos hacia infraestructura de estado: `IJobRepository`, `IJobQueueWriter`/`IJobQueueReader`, `ISlotRegistry` |
 | `Pipelines/` | Una estrategia por `SlotMode`: `ResizeAndPadPipeline`, `CoverOrPadPipeline`, `FitTransparentPipeline` |
 | `Progress/` | `OptimizerProgress` (tabla de tramos), `StageProgress`, extensiones del notificador |
@@ -72,7 +72,7 @@ LexPCImages.slnx
 
 | Carpeta | Contenido |
 |---|---|
-| `Imaging/` | Servicios respaldados por ImageSharp + `Internal/RgbaImageInterop` |
+| `Imaging/` | Servicios respaldados por ImageSharp + `Internal/RgbaImageInterop` y `Internal/ResamplerSelector`. `AlphaBorderTrimmer` no usa ImageSharp: recorre el búfer RGBA |
 | `Persistence/` | `InMemoryJobRepository` con retención y tope de trabajos |
 | `Queue/`, `Registries/`, `BackgroundProcessing/`, `Configuration/` | Cola `Channel<T>`, catálogo de slots, worker, `OptimizerOptions` |
 
@@ -97,9 +97,11 @@ GET /api/optimizer/jobs/{id}/download  →  "{slotId}-{jobId:N}.webp"
 ```
 
 `ResizeAndPadPipeline` (`SlotMode.ResizeAndPad`): escalado proporcional + relleno con el color de fondo dominante.
-`FitTransparentPipeline` (`SlotMode.FitTransparent`): escalado proporcional dejando transparente lo que
-sobra. Es el modo para imágenes que ya llegan sin fondo: no recorta, no deforma y no inventa un color
-de relleno que se notaría sobre el alfa del original.
+`FitTransparentPipeline` (`SlotMode.FitTransparent`): recorte del marco transparente + escalado proporcional
+dejando transparente lo que sobra. Es el modo para imágenes que ya llegan sin fondo: no recorta contenido, no
+deforma y no inventa un color de relleno que se notaría sobre el alfa del original. El recorte previo evita
+gastar los píxeles del slot en el aire del máster, que es lo que hacía salir el producto más pequeño —y por
+tanto menos nítido— de lo que cabe.
 `CoverOrPadPipeline` (`SlotMode.CoverOrPad`): decide entre recortar y rellenar según la cobertura que dejaría el
 recorte (`CoverFitOptions.ShouldCrop`). Por encima del umbral escala cubriendo y recorta centrado; por debajo
 delega en el mismo relleno que `ResizeAndPad`. Un solo remuestreo en ambos caminos.
@@ -177,7 +179,7 @@ puede quedarse en `Queued` para siempre.
 3. **El dominio no llama a `DateTimeOffset.UtcNow`**: la hora entra como parámetro (hay un test que inspecciona el IL).
 4. **Nada de excepciones como flujo de control** en validación: usar `TryCreate`/`TryWith`/`Result`.
 5. **Toda mutación del agregado se confirma con `IJobRepository.UpdateAsync`**, aunque el repo en memoria comparta referencia.
-6. **Conversión RGBA ↔ ImageSharp** solo por `RgbaImageInterop`; morfología solo por `Morphology`.
+6. **Conversión RGBA ↔ ImageSharp** solo por `RgbaImageInterop`; elección de remuestreador solo por `ResamplerSelector`.
 7. Los controladores **no validan reglas de negocio**: traducen y delegan.
 8. **Nada nuevo en `Domain` que necesite una referencia externa.** Si algo requiere `Result<T>`,
    `Error` o un paquete, es que pertenece a `Application`.
@@ -195,11 +197,11 @@ dotnet run --project src/LexPCImages.API     # puerto 5232
 
 | Suite | Tests | Cubre |
 |---|---|---|
-| `UnitTests` | 142 | Dominio, casos de uso, pipelines, repositorio (con `FakeTimeProvider`), validación de firma, cola, ImageSharp, `Result<T>` |
+| `UnitTests` | 162 | Dominio, casos de uso, pipelines, repositorio (con `FakeTimeProvider`), validación de firma, cola, ImageSharp, `Result<T>` |
 | `ArchitectureTests` | 18 | Capas, dominio sin dependencias, contratos, independencia web, reloj del dominio, mapeo de errores centralizado, no console |
 | `IntegrationTests` | 16 | `WebApplicationFactory` sin dobles: enqueue → polling → download, paquete y slots sueltos, `problem+json` |
 
-**Total: 176/176 verdes.**
+**Total: 196/196 verdes.**
 
 ## Estado de las fases
 

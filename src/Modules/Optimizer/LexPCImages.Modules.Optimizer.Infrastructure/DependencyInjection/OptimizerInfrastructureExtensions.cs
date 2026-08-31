@@ -45,6 +45,7 @@ public static class OptimizerInfrastructureExtensions
         services.AddSingleton<IImageEncoder, WebpImageEncoder>();
         services.AddSingleton<IImageResizer, ImageSharpResizer>();
         services.AddSingleton<IImagePadder, ImageSharpPadder>();
+        services.AddSingleton<IImageTrimmer, AlphaBorderTrimmer>();
     }
 
     private static void AddOptimizerProcessing(this IServiceCollection services)
